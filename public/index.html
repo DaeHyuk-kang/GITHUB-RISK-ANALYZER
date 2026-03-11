@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GitHub Repository Risk Analyzer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f7f7f7;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .box {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            margin-bottom: 20px;
+        }
+
+        input {
+            width: 70%;
+            padding: 10px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 10px 16px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .result-item {
+            margin: 8px 0;
+        }
+
+        .score {
+            font-size: 28px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .loading {
+            color: #555;
+        }
+
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        canvas {
+            max-width: 100%;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>GitHub Repository Risk Analyzer</h1>
+
+    <div class="box">
+        <input type="text" id="repoInput" placeholder="example: nodejs/node" />
+        <button onclick="analyzeRepo()">Analyze</button>
+    </div>
+
+    <div class="box" id="output">
+        <p>분석할 repository를 입력하세요.</p>
+    </div>
+
+    <div class="box">
+        <h3>Score Chart</h3>
+        <canvas id="scoreChart"></canvas>
+    </div>
+
+    <div class="box">
+        <h3>Repository Status Chart</h3>
+        <canvas id="statusChart"></canvas>
+    </div>
+
+    <script>
+        let scoreChart = null
+        let statusChart = null
+
+        async function analyzeRepo() {
+            const repo = document.getElementById("repoInput").value.trim()
+            const output = document.getElementById("output")
+
+            if (!repo) {
+                output.innerHTML = `<p class="error">repo를 입력하세요. 예: nodejs/node</p>`
+                return
+            }
+
+            output.innerHTML = `<p class="loading">분석 중...</p>`
+
+            try {
+                const response = await fetch(`/analyze?repo=${repo}`)
+                const data = await response.json()
+
+                if (!response.ok) {
+                    output.innerHTML = `<p class="error">${data.error || "분석 실패"}</p>`
+                    return
+                }
+
+                output.innerHTML = `
+          <h2>${data.name}</h2>
+          <div class="score">Risk Score: ${data.risk_score}</div>
+          <div class="result-item"><strong>Risk Level:</strong> ${data.risk_level || "N/A"}</div>
+
+          <hr>
+
+          <div class="grid">
+            <div class="result-item"><strong>Stars:</strong> ${data.stars}</div>
+            <div class="result-item"><strong>Forks:</strong> ${data.forks}</div>
+            <div class="result-item"><strong>Last Update:</strong> ${data.last_update}</div>
+            <div class="result-item"><strong>Latest Commit:</strong> ${data.latest_commit_date}</div>
+
+            <div class="result-item"><strong>Contributor Count:</strong> ${data.contributor_count}</div>
+            <div class="result-item"><strong>Top Contributor:</strong> ${data.top_contributor}</div>
+            <div class="result-item"><strong>Top Contributor Ratio:</strong> ${data.top_contributor_ratio}%</div>
+            <div class="result-item"><strong>Recent Commit Count:</strong> ${data.recent_commit_count}</div>
+
+            <div class="result-item"><strong>Total Issues:</strong> ${data.total_issues}</div>
+            <div class="result-item"><strong>Open Issues:</strong> ${data.open_issues}</div>
+            <div class="result-item"><strong>Closed Issues:</strong> ${data.closed_issues}</div>
+            <div class="result-item"><strong>Open Issue Rate:</strong> ${data.open_issue_rate}%</div>
+
+            <div class="result-item"><strong>Total PRs:</strong> ${data.total_pull_requests}</div>
+            <div class="result-item"><strong>Open PRs:</strong> ${data.open_pull_requests}</div>
+            <div class="result-item"><strong>Merged PRs:</strong> ${data.merged_pull_requests}</div>
+            <div class="result-item"><strong>PR Merge Rate:</strong> ${data.pr_merge_rate}%</div>
+          </div>
+        `
+
+                drawScoreChart(data)
+                drawStatusChart(data)
+
+            } catch (error) {
+                output.innerHTML = `<p class="error">에러 발생: ${error.message}</p>`
+            }
+        }
+
+        function drawScoreChart(data) {
+            const ctx = document.getElementById("scoreChart").getContext("2d")
+
+            if (scoreChart) {
+                scoreChart.destroy()
+            }
+
+            scoreChart = new Chart(ctx, {
+                type: "bar",
+                data: {
+                    labels: ["Activity", "Contributor", "Issue", "PR"],
+                    datasets: [{
+                        label: "Detail Scores",
+                        data: [
+                            data.detail_scores.activity,
+                            data.detail_scores.contributor,
+                            data.detail_scores.issue,
+                            data.detail_scores.pr
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            })
+        }
+
+        function drawStatusChart(data) {
+            const ctx = document.getElementById("statusChart").getContext("2d")
+
+            if (statusChart) {
+                statusChart.destroy()
+            }
+
+            statusChart = new Chart(ctx, {
+                type: "bar",
+                data: {
+                    labels: ["Open Issues", "Closed Issues", "Open PRs", "Merged PRs"],
+                    datasets: [{
+                        label: "Repository Status",
+                        data: [
+                            data.open_issues,
+                            data.closed_issues,
+                            data.open_pull_requests,
+                            data.merged_pull_requests
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            })
+        }
+    </script>
+</body>
+
+</html>
