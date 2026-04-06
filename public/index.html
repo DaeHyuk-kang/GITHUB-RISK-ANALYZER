@@ -4,8 +4,9 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GitHub Repository Risk Analyzer</title>
+    <title>GitHub Repository Risk Analyzer (Real-time)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -53,6 +54,21 @@
             color: #555;
         }
 
+        .progress-container {
+            width: 100%;
+            background-color: #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        .progress-bar {
+            width: 0%;
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
         .error {
             color: red;
             font-weight: bold;
@@ -68,6 +84,10 @@
             max-width: 100%;
             margin-top: 20px;
         }
+
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 
@@ -76,90 +96,179 @@
 
     <div class="box">
         <input type="text" id="repoInput" placeholder="example: nodejs/node" />
-        <button onclick="analyzeRepo()">Analyze</button>
+        <button id="analyzeBtn">Analyze</button>
+    </div>
+
+    <div id="progressBox" class="box hidden">
+        <h3 id="progressStep">Starting analysis...</h3>
+        <div class="progress-container">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <p id="progressPercent">0%</p>
     </div>
 
     <div class="box" id="output">
         <p>분석할 repository를 입력하세요.</p>
     </div>
 
-    <div class="box">
-        <h3>Score Chart</h3>
-        <canvas id="scoreChart"></canvas>
-    </div>
+    <div id="chartContainer" class="hidden">
+        <div class="box">
+            <h3>Score Chart</h3>
+            <canvas id="scoreChart"></canvas>
+        </div>
 
-    <div class="box">
-        <h3>Repository Status Chart</h3>
-        <canvas id="statusChart"></canvas>
+        <div class="box">
+            <h3>Repository Status Chart</h3>
+            <canvas id="statusChart"></canvas>
+        </div>
     </div>
 
     <script>
-        let scoreChart = null
-        let statusChart = null
+        const socket = io();
+        let scoreChart = null;
+        let statusChart = null;
 
-        async function analyzeRepo() {
-            const repo = document.getElementById("repoInput").value.trim()
-            const output = document.getElementById("output")
+        const analyzeBtn = document.getElementById("analyzeBtn");
+        const repoInput = document.getElementById("repoInput");
+        const output = document.getElementById("output");
+        const progressBox = document.getElementById("progressBox");
+        const progressBar = document.getElementById("progressBar");
+        const progressStep = document.getElementById("progressStep");
+        const progressPercent = document.getElementById("progressPercent");
+        const chartContainer = document.getElementById("chartContainer");
+
+        analyzeBtn.addEventListener("click", async () => {
+            const repo = repoInput.value.trim();
 
             if (!repo) {
-                output.innerHTML = `<p class="error">repo를 입력하세요. 예: nodejs/node</p>`
-                return
+                output.innerHTML = `<p class="error">repo를 입력하세요. 예: nodejs/node</p>`;
+                return;
             }
 
-            output.innerHTML = `<p class="loading">분석 중...</p>`
+            output.innerHTML = `<p class="loading">요청 중...</p>`;
+            progressBox.classList.remove("hidden");
+            chartContainer.classList.add("hidden");
+            progressBar.style.width = "0%";
+            progressPercent.textContent = "0%";
+            progressStep.textContent = "Connecting to queue...";
 
             try {
-                const response = await fetch(`/analyze?repo=${repo}`)
-                const data = await response.json()
+                const response = await fetch("/api/analyze", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ repo })
+                });
+                
+                const data = await response.json();
 
                 if (!response.ok) {
-                    output.innerHTML = `<p class="error">${data.error || "분석 실패"}</p>`
-                    return
+                    output.innerHTML = `<p class="error">${data.message || "분석 요청 실패"}</p>`;
+                    progressBox.classList.add("hidden");
+                    return;
                 }
 
-                output.innerHTML = `
-          <h2>${data.name}</h2>
-          <div class="score">Risk Score: ${data.risk_score}</div>
-          <div class="result-item"><strong>Risk Level:</strong> ${data.risk_level || "N/A"}</div>
-
-          <hr>
-
-          <div class="grid">
-            <div class="result-item"><strong>Stars:</strong> ${data.stars}</div>
-            <div class="result-item"><strong>Forks:</strong> ${data.forks}</div>
-            <div class="result-item"><strong>Last Update:</strong> ${data.last_update}</div>
-            <div class="result-item"><strong>Latest Commit:</strong> ${data.latest_commit_date}</div>
-
-            <div class="result-item"><strong>Contributor Count:</strong> ${data.contributor_count}</div>
-            <div class="result-item"><strong>Top Contributor:</strong> ${data.top_contributor}</div>
-            <div class="result-item"><strong>Top Contributor Ratio:</strong> ${data.top_contributor_ratio}%</div>
-            <div class="result-item"><strong>Recent Commit Count:</strong> ${data.recent_commit_count}</div>
-
-            <div class="result-item"><strong>Total Issues:</strong> ${data.total_issues}</div>
-            <div class="result-item"><strong>Open Issues:</strong> ${data.open_issues}</div>
-            <div class="result-item"><strong>Closed Issues:</strong> ${data.closed_issues}</div>
-            <div class="result-item"><strong>Open Issue Rate:</strong> ${data.open_issue_rate}%</div>
-
-            <div class="result-item"><strong>Total PRs:</strong> ${data.total_pull_requests}</div>
-            <div class="result-item"><strong>Open PRs:</strong> ${data.open_pull_requests}</div>
-            <div class="result-item"><strong>Merged PRs:</strong> ${data.merged_pull_requests}</div>
-            <div class="result-item"><strong>PR Merge Rate:</strong> ${data.pr_merge_rate}%</div>
-          </div>
-        `
-
-                drawScoreChart(data)
-                drawStatusChart(data)
+                const jobId = data.jobId;
+                socket.emit("join-job", jobId);
+                output.innerHTML = `<p class="loading">Job ID: ${jobId} - 대기 중...</p>`;
+                
+                // Poll for status every 2 seconds as fallback
+                const statusInterval = setInterval(async () => {
+                    const statusRes = await fetch(`/api/jobs/${jobId}`);
+                    const statusData = await statusRes.json();
+                    
+                    if (statusData.status === "COMPLETED" || statusData.status === "DONE") {
+                        clearInterval(statusInterval);
+                        if (chartContainer.classList.contains("hidden")) {
+                            displayResult(statusData.result);
+                        }
+                    } else if (statusData.status === "FAILED") {
+                        clearInterval(statusInterval);
+                        output.innerHTML = `<p class="error">분석 실패: ${statusData.error} <button onclick="retryJob('${jobId}')">Retry</button></p>`;
+                    }
+                }, 2000);
 
             } catch (error) {
-                output.innerHTML = `<p class="error">에러 발생: ${error.message}</p>`
+                output.innerHTML = `<p class="error">에러 발생: ${error.message}</p>`;
+                progressBox.classList.add("hidden");
+            }
+        });
+
+        async function retryJob(jobId) {
+            output.innerHTML = `<p class="loading">Retrying job ${jobId}...</p>`;
+            try {
+                await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+                socket.emit("join-job", jobId);
+            } catch (e) {
+                output.innerHTML = `<p class="error">Retry failed: ${e.message}</p>`;
             }
         }
 
+        socket.on("job:update", (payload) => {
+            console.log("Job update:", payload);
+            
+            if (payload.progress !== undefined) {
+                progressBar.style.width = `${payload.progress}%`;
+                progressPercent.textContent = `${payload.progress}%`;
+            }
+            
+            if (payload.step) {
+                progressStep.textContent = payload.step;
+            }
+
+            if (payload.status === "DONE") {
+                progressBox.classList.add("hidden");
+                displayResult(payload.result);
+            } else if (payload.status === "FAILED") {
+                progressBox.classList.add("hidden");
+                output.innerHTML = `<p class="error">분석 실패: ${payload.error}</p>`;
+            } else {
+                output.innerHTML = `<p class="loading">분석 진행 중: ${payload.step}...</p>`;
+            }
+        });
+
+        function displayResult(data) {
+            output.innerHTML = `
+                <h2>${data.name}</h2>
+                <div class="score">Risk Score: ${data.risk_score}</div>
+                <div class="result-item"><strong>Risk Level:</strong> ${data.risk_level || "N/A"}</div>
+
+                <hr>
+
+                <div class="grid">
+                    <div class="result-item"><strong>Stars:</strong> ${data.stars}</div>
+                    <div class="result-item"><strong>Forks:</strong> ${data.forks}</div>
+                    <div class="result-item"><strong>Last Update:</strong> ${data.last_update}</div>
+                    <div class="result-item"><strong>Latest Commit:</strong> ${data.latest_commit_date}</div>
+
+                    <div class="result-item"><strong>Contributor Count:</strong> ${data.contributor_count}</div>
+                    <div class="result-item"><strong>Top Contributor:</strong> ${data.top_contributor}</div>
+                    <div class="result-item"><strong>Top Contributor Ratio:</strong> ${data.top_contributor_ratio}%</div>
+                    <div class="result-item"><strong>Recent Commit Count:</strong> ${data.recent_commit_count}</div>
+
+                    <div class="result-item"><strong>Total Issues:</strong> ${data.total_issues}</div>
+                    <div class="result-item"><strong>Open Issues:</strong> ${data.open_issues}</div>
+                    <div class="result-item"><strong>Closed Issues:</strong> ${data.closed_issues}</div>
+                    <div class="result-item"><strong>Open Issue Rate:</strong> ${data.open_issue_rate}%</div>
+
+                    <div class="result-item"><strong>Total PRs:</strong> ${data.total_pull_requests}</div>
+                    <div class="result-item"><strong>Open PRs:</strong> ${data.open_pull_requests}</div>
+                    <div class="result-item"><strong>Merged PRs:</strong> ${data.merged_pull_requests}</div>
+                    <div class="result-item"><strong>PR Merge Rate:</strong> ${data.pr_merge_rate}%</div>
+                </div>
+            `;
+
+            chartContainer.classList.remove("hidden");
+            drawScoreChart(data);
+            drawStatusChart(data);
+        }
+
         function drawScoreChart(data) {
-            const ctx = document.getElementById("scoreChart").getContext("2d")
+            const ctx = document.getElementById("scoreChart").getContext("2d");
 
             if (scoreChart) {
-                scoreChart.destroy()
+                scoreChart.destroy();
             }
 
             scoreChart = new Chart(ctx, {
@@ -173,7 +282,10 @@
                             data.detail_scores.contributor,
                             data.detail_scores.issue,
                             data.detail_scores.pr
-                        ]
+                        ],
+                        backgroundColor: "rgba(75, 192, 192, 0.2)",
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        borderWidth: 1
                     }]
                 },
                 options: {
@@ -185,14 +297,14 @@
                         }
                     }
                 }
-            })
+            });
         }
 
         function drawStatusChart(data) {
-            const ctx = document.getElementById("statusChart").getContext("2d")
+            const ctx = document.getElementById("statusChart").getContext("2d");
 
             if (statusChart) {
-                statusChart.destroy()
+                statusChart.destroy();
             }
 
             statusChart = new Chart(ctx, {
@@ -206,7 +318,10 @@
                             data.closed_issues,
                             data.open_pull_requests,
                             data.merged_pull_requests
-                        ]
+                        ],
+                        backgroundColor: "rgba(153, 102, 255, 0.2)",
+                        borderColor: "rgba(153, 102, 255, 1)",
+                        borderWidth: 1
                     }]
                 },
                 options: {
@@ -217,7 +332,7 @@
                         }
                     }
                 }
-            })
+            });
         }
     </script>
 </body>
