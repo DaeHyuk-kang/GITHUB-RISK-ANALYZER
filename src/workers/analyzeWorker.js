@@ -1,5 +1,7 @@
 const { Worker } = require("bullmq");
+const Redis = require("ioredis");
 const redisConnection = require("../config/redis");
+const analysisModel = require("../models/analysisModel");
 const {
   getRepo,
   getCommits,
@@ -9,142 +11,200 @@ const {
 } = require("../services/githubService");
 const { calculateRiskScore } = require("../services/riskAnalyzer");
 
-let ioInstance = null;
-
-function setIo(io) {
-  ioInstance = io;
-}
+// Redis Publisher 생성 (진행 상황 전송용)
+const publisher = new Redis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
+  maxRetriesPerRequest: null
+});
 
 function emitJobUpdate(jobId, payload) {
-  if (ioInstance) {
-    ioInstance.to(`job:${jobId}`).emit("job:update", {
-      jobId,
-      ...payload
-    });
-  }
+  // Redis 채널로 진행 상황 발행 (서버가 받아서 소켓으로 전달함)
+  publisher.publish("job-updates", JSON.stringify({
+    jobId,
+    ...payload
+  }));
 }
 
 const analyzeWorker = new Worker(
   "analyze-repo",
   async (job) => {
-    const { repo } = job.data;
+    const { repo, dbId } = job.data;
     const [owner, name] = repo.split("/");
 
-    emitJobUpdate(job.id, {
-      status: "PROCESSING",
-      progress: 10,
-      step: "fetching data from GitHub..."
-    });
+    try {
+      emitJobUpdate(job.id, {
+        status: "PROCESSING",
+        progress: 10,
+        step: "fetching repository info..."
+      });
+      await job.updateProgress(10);
+      const repoData = await getRepo(owner, name);
 
-    const [repoData, commits, contributors, issues, pulls] = await Promise.all([
-      getRepo(owner, name),
-      getCommits(owner, name),
-      getContributors(owner, name),
-      getIssues(owner, name),
-      getPullRequests(owner, name)
-    ]);
+      emitJobUpdate(job.id, {
+        status: "PROCESSING",
+        progress: 25,
+        step: "fetching recent commits..."
+      });
+      await job.updateProgress(25);
+      const commits = await getCommits(owner, name);
 
-    emitJobUpdate(job.id, {
-      status: "PROCESSING",
-      progress: 80,
-      step: "data fetched, calculating risk..."
-    });
+      emitJobUpdate(job.id, {
+        status: "PROCESSING",
+        progress: 45,
+        step: "fetching contributors..."
+      });
+      await job.updateProgress(45);
+      const contributors = await getContributors(owner, name);
 
-    // Reuse the logic from original routes/analyze.js
-    const totalContributors = contributors.length;
-    const totalContributions = contributors.reduce((sum, c) => sum + c.contributions, 0);
+      emitJobUpdate(job.id, {
+        status: "PROCESSING",
+        progress: 65,
+        step: "fetching issues..."
+      });
+      await job.updateProgress(65);
+      const issues = await getIssues(owner, name);
 
-    const topContributor = contributors[0] || null;
-    const topContributorRatio =
-        totalContributions > 0 && topContributor
-            ? topContributor.contributions / totalContributions
-            : 0;
+      emitJobUpdate(job.id, {
+        status: "PROCESSING",
+        progress: 85,
+        step: "fetching pull requests..."
+      });
+      await job.updateProgress(85);
+      const pulls = await getPullRequests(owner, name);
 
-    const realIssues = issues.filter(issue => !issue.pull_request);
-    const openIssues = realIssues.filter(issue => issue.state === "open");
-    const closedIssues = realIssues.filter(issue => issue.state === "closed");
-    const totalIssues = realIssues.length;
-    const openIssueRate = totalIssues > 0 ? openIssues.length / totalIssues : 0;
+      emitJobUpdate(job.id, {
+        status: "PROCESSING",
+        progress: 95,
+        step: "calculating risk scores..."
+      });
+      await job.updateProgress(95);
 
-    const totalPullRequests = pulls.length;
-    const openPullRequests = pulls.filter(pr => pr.state === "open");
-    const mergedPullRequests = pulls.filter(pr => pr.merged_at !== null);
-    const closedPullRequests = pulls.filter(
-        pr => pr.state === "closed" && pr.merged_at === null
-    );
+      // 데이터 가공 및 점수 계산 로직
+      const totalContributors = contributors.length;
+      const totalContributions = contributors.reduce((sum, c) => sum + c.contributions, 0);
 
-    const prMergeRate = totalPullRequests > 0 ? mergedPullRequests.length / totalPullRequests : 0;
+      const topContributor = contributors[0] || null;
+      const topContributorRatio =
+          totalContributions > 0 && topContributor
+              ? topContributor.contributions / totalContributions
+              : 0;
 
-    const latestCommitDate = commits[0]?.commit?.author?.date || null;
-    const topContributorRatioPercent = Number((topContributorRatio * 100).toFixed(2));
-    const openIssueRatePercent = Number((openIssueRate * 100).toFixed(2));
-    const prMergeRatePercent = Number((prMergeRate * 100).toFixed(2));
+      const realIssues = issues.filter(issue => !issue.pull_request);
+      const openIssues = realIssues.filter(issue => issue.state === "open");
+      const closedIssues = realIssues.filter(issue => issue.state === "closed");
+      const totalIssues = realIssues.length;
+      const openIssueRate = totalIssues > 0 ? openIssues.length / totalIssues : 0;
 
-    const scoreResult = calculateRiskScore({
-        latest_commit_date: latestCommitDate,
-        top_contributor_ratio: topContributorRatioPercent,
-        open_issue_rate: openIssueRatePercent,
-        pr_merge_rate: prMergeRatePercent
-    });
+      const totalPullRequests = pulls.length;
+      const openPullRequests = pulls.filter(pr => pr.state === "open");
+      const mergedPullRequests = pulls.filter(pr => pr.merged_at !== null);
+      const closedPullRequests = pulls.filter(
+          pr => pr.state === "closed" && pr.merged_at === null
+      );
 
-    const result = {
-        name: repoData.name,
-        stars: repoData.stargazers_count,
-        forks: repoData.forks_count,
-        last_update: repoData.updated_at,
+      const prMergeRate = totalPullRequests > 0 ? mergedPullRequests.length / totalPullRequests : 0;
 
-        recent_commit_count: commits.length,
-        latest_commit_date: latestCommitDate,
+      const latestCommitDate = commits[0]?.commit?.author?.date || null;
+      const topContributorRatioPercent = Number((topContributorRatio * 100).toFixed(2));
+      const openIssueRatePercent = Number((openIssueRate * 100).toFixed(2));
+      const prMergeRatePercent = Number((prMergeRate * 100).toFixed(2));
 
-        contributor_count: totalContributors,
-        top_contributor: topContributor?.login || null,
-        top_contributor_ratio: topContributorRatioPercent,
+      const scoreResult = calculateRiskScore({
+          latest_commit_date: latestCommitDate,
+          top_contributor_ratio: topContributorRatioPercent,
+          open_issue_rate: openIssueRatePercent,
+          pr_merge_rate: prMergeRatePercent
+      });
 
-        total_issues: totalIssues,
-        open_issues: openIssues.length,
-        closed_issues: closedIssues.length,
-        open_issue_rate: openIssueRatePercent,
+      const result = {
+          name: repoData.name,
+          stars: repoData.stargazers_count,
+          forks: repoData.forks_count,
+          last_update: repoData.updated_at,
 
-        total_pull_requests: totalPullRequests,
-        open_pull_requests: openPullRequests.length,
-        merged_pull_requests: mergedPullRequests.length,
-        closed_unmerged_pull_requests: closedPullRequests.length,
-        pr_merge_rate: prMergeRatePercent,
+          recent_commit_count: commits.length,
+          latest_commit_date: latestCommitDate,
 
-        risk_score: scoreResult.totalScore,
-        risk_level: scoreResult.riskLevel,
-        detail_scores: {
-            activity: scoreResult.activityScore,
-            contributor: scoreResult.contributorScore,
-            issue: scoreResult.issueScore,
-            pr: scoreResult.prScore
+          contributor_count: totalContributors,
+          top_contributor: topContributor?.login || null,
+          top_contributor_ratio: topContributorRatioPercent,
+
+          total_issues: totalIssues,
+          open_issues: openIssues.length,
+          closed_issues: closedIssues.length,
+          open_issue_rate: openIssueRatePercent,
+
+          total_pull_requests: totalPullRequests,
+          open_pull_requests: openPullRequests.length,
+          merged_pull_requests: mergedPullRequests.length,
+          closed_unmerged_pull_requests: closedPullRequests.length,
+          pr_merge_rate: prMergeRatePercent,
+
+          risk_score: scoreResult.totalScore,
+          risk_level: scoreResult.riskLevel,
+          detail_scores: {
+              activity: scoreResult.activityScore,
+              contributor: scoreResult.contributorScore,
+              issue: scoreResult.issueScore,
+              pr: scoreResult.prScore
+          }
+      };
+
+      // DB 업데이트
+      if (dbId) {
+        await analysisModel.update(dbId, {
+          status: "COMPLETED",
+          score: result.risk_score,
+          level: result.risk_level,
+          resultData: result
+        });
+      }
+
+      // 이전 점수 조회 (변화량 계산)
+      const results = await analysisModel.getTwoLatestByRepo(repo);
+      const previous = results[1] || null;
+      const scoreDiff = previous ? (result.risk_score - previous.risk_score) : 0;
+
+      emitJobUpdate(job.id, {
+        status: "DONE",
+        progress: 100,
+        step: "analysis completed",
+        result: {
+          ...result,
+          previous_score: previous ? previous.risk_score : null,
+          score_diff: scoreDiff
         }
-    };
+      });
+      await job.updateProgress(100);
 
-    emitJobUpdate(job.id, {
-      status: "DONE",
-      progress: 100,
-      step: "analysis completed",
-      result
-    });
+      return result;
+    } catch (error) {
+      console.error("Worker analysis failed:", error.message);
+      
+      // DB 상태 실패로 업데이트
+      if (dbId) {
+        await analysisModel.update(dbId, {
+          status: "FAILED",
+          score: 0,
+          level: "UNKNOWN",
+          resultData: { error: error.message }
+        });
+      }
+      
+      emitJobUpdate(job.id, {
+        status: "FAILED",
+        progress: 100,
+        step: "analysis failed",
+        error: error.message
+      });
 
-    return result;
+      throw error;
+    }
   },
   {
     connection: redisConnection
   }
 );
 
-analyzeWorker.on("failed", (job, err) => {
-  emitJobUpdate(job.id, {
-    status: "FAILED",
-    progress: 100,
-    step: "analysis failed",
-    error: err.message
-  });
-});
-
 module.exports = {
-  analyzeWorker,
-  setIo
+  analyzeWorker
 };
