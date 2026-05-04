@@ -1,3 +1,11 @@
 node_modules/
 .env
 .DS_Store
+
+# Claude Code internals
+.claude/
+
+# Personal / planning docs
+explain.txt
+gemini_history.txt
+proposal.md
