@@ -1068,7 +1068,8 @@
         async function deleteSchedule(repoName) {
             if (!confirm(`Remove schedule for "${repoName}"?`)) return;
             try {
-                const res = await fetch(`/api/schedules/${encodeURIComponent(repoName)}`, { method: "DELETE" });
+                const [owner, repo] = repoName.split("/");
+                const res = await fetch(`/api/schedules/${owner}/${repo}`, { method: "DELETE" });
                 const data = await res.json();
                 if (!data.success) { alert(data.message); return; }
                 loadSchedules();

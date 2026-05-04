@@ -15,8 +15,7 @@ class ScheduleController {
 
   async removeSchedule(req, res) {
     try {
-      const { repo } = req.params;
-      const repoName = decodeURIComponent(repo);
+      const repoName = `${req.params.owner}/${req.params.repo}`;
       const result = await scheduleService.removeSchedule(repoName);
       return res.json({ success: true, data: result });
     } catch (error) {
