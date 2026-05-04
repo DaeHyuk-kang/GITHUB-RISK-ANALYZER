@@ -10,6 +10,7 @@ const {
   getPullRequests
 } = require("../services/githubService");
 const { calculateRiskScore } = require("../services/riskAnalyzer");
+const { sendSlackAlert } = require("../services/notificationService");
 
 // Redis Publisher 생성 (진행 상황 전송용)
 const publisher = createRedisClient();
@@ -25,8 +26,14 @@ function emitJobUpdate(jobId, payload) {
 const analyzeWorker = new Worker(
   "analyze-repo",
   async (job) => {
-    const { repo, dbId } = job.data;
+    const { repo } = job.data;
+    let { dbId } = job.data;
     const [owner, name] = repo.split("/");
+
+    // 스케줄 작업은 dbId 없이 실행되므로 여기서 직접 생성
+    if (!dbId) {
+      dbId = await analysisModel.create({ repoName: repo });
+    }
 
     try {
       emitJobUpdate(job.id, {
@@ -148,13 +155,17 @@ const analyzeWorker = new Worker(
       };
 
       // DB 업데이트
-      if (dbId) {
-        await analysisModel.update(dbId, {
-          status: "COMPLETED",
-          score: result.risk_score,
-          level: result.risk_level,
-          resultData: result
-        });
+      await analysisModel.update(dbId, {
+        status: "COMPLETED",
+        score: result.risk_score,
+        level: result.risk_level,
+        resultData: result
+      });
+
+      // 임계값 이하 시 Slack 알림
+      const threshold = Number(process.env.ALERT_SCORE_THRESHOLD) || 60;
+      if (result.risk_score < threshold) {
+        await sendSlackAlert({ repo, score: result.risk_score, level: result.risk_level, threshold });
       }
 
       // 이전 점수 조회 (변화량 계산)
@@ -179,14 +190,12 @@ const analyzeWorker = new Worker(
       console.error("Worker analysis failed:", error.message);
       
       // DB 상태 실패로 업데이트
-      if (dbId) {
-        await analysisModel.update(dbId, {
-          status: "FAILED",
-          score: 0,
-          level: "UNKNOWN",
-          resultData: { error: error.message }
-        });
-      }
+      await analysisModel.update(dbId, {
+        status: "FAILED",
+        score: 0,
+        level: "UNKNOWN",
+        resultData: { error: error.message }
+      });
       
       emitJobUpdate(job.id, {
         status: "FAILED",

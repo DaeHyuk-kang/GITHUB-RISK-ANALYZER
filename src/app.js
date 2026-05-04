@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const analyzeRoutes = require("./routes/analyzeRoutes");
 const webhookRoutes = require("./routes/webhookRoutes");
+const scheduleRoutes = require("./routes/scheduleRoutes");
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(express.json());
 app.use(express.static("public"));
 
 app.use("/api", analyzeRoutes);
+app.use("/api/schedules", scheduleRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {

@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const app = require("./app");
 const registerSocket = require("./sockets/socketHandler");
 const { createRedisClient } = require("./config/redis");
+const scheduleService = require("./services/scheduleService");
 
 const server = http.createServer(app);
 
@@ -40,6 +41,7 @@ registerSocket(io);
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  await scheduleService.restoreSchedules();
 });
