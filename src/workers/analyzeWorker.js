@@ -11,6 +11,8 @@ const {
 } = require("../services/githubService");
 const { calculateRiskScore } = require("../services/riskAnalyzer");
 const { sendSlackAlert } = require("../services/notificationService");
+const { sendAlertEmail } = require("../services/emailService");
+const alertSubscriptionModel = require("../models/alertSubscriptionModel");
 
 // Redis Publisher 생성 (진행 상황 전송용)
 const publisher = createRedisClient();
@@ -162,10 +164,24 @@ const analyzeWorker = new Worker(
         resultData: result
       });
 
-      // 임계값 이하 시 Slack 알림
-      const threshold = Number(process.env.ALERT_SCORE_THRESHOLD) || 60;
-      if (result.risk_score < threshold) {
-        await sendSlackAlert({ repo, score: result.risk_score, level: result.risk_level, threshold });
+      // Slack 글로벌 알림
+      const slackThreshold = Number(process.env.ALERT_SCORE_THRESHOLD) || 60;
+      if (result.risk_score < slackThreshold) {
+        await sendSlackAlert({ repo, score: result.risk_score, level: result.risk_level, threshold: slackThreshold });
+      }
+
+      // 구독자별 이메일 알림
+      const subscribers = await alertSubscriptionModel.getSubscribersForRepo(repo);
+      for (const sub of subscribers) {
+        if (result.risk_score < sub.threshold) {
+          await sendAlertEmail({
+            to: sub.email,
+            repo,
+            score: result.risk_score,
+            level: result.risk_level,
+            threshold: sub.threshold
+          });
+        }
       }
 
       // 이전 점수 조회 (변화량 계산)
