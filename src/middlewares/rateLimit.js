@@ -23,22 +23,21 @@ async function rateLimit(req, res, next) {
 
     for (const r of targetRepos) {
       const repoKey = `rate:repo:${r}`;
-      const isLocked = await redis.get(repoKey);
+      // SET NX is atomic: returns "OK" if key was set, null if already existed
+      const locked = await redis.set(repoKey, "locked", "EX", 30, "NX");
 
-      if (isLocked) {
+      if (!locked) {
         return res.status(409).json({
           success: false,
           message: `Repository '${r}' is already being analyzed or was recently analyzed. Please wait 30 seconds.`
         });
       }
-      // Set a lock for 30 seconds
-      await redis.set(repoKey, "locked", "EX", 30);
     }
 
     next();
   } catch (err) {
     console.error("Rate limit middleware error:", err);
-    next(); // Continue even if Redis fails (fail-open)
+    return res.status(503).json({ success: false, message: "Service temporarily unavailable" });
   }
 }
 

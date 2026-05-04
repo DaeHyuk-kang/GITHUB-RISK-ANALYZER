@@ -7,7 +7,7 @@ const app = express();
 
 app.set("json spaces", 2);
 
-app.use(cors());
+app.use(cors({ origin: process.env.ALLOWED_ORIGIN || "*" }));
 
 // Webhook routes must be mounted before express.json() so that
 // express.raw() on the route can capture the raw body for signature verification.

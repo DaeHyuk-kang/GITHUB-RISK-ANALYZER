@@ -17,7 +17,7 @@ async function getRepo(owner, repo) {
 }
 
 async function getCommits(owner, repo) {
-    const response = await githubApi.get(`/repos/${owner}/${repo}/commits`)
+    const response = await githubApi.get(`/repos/${owner}/${repo}/commits?per_page=100`)
     return response.data
 }
 

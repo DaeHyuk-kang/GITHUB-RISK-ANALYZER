@@ -10,7 +10,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*"
+    origin: process.env.ALLOWED_ORIGIN || "*"
   }
 });
 
@@ -29,8 +29,12 @@ subscriber.subscribe("job-updates", (err, count) => {
 
 subscriber.on("message", (channel, message) => {
   if (channel === "job-updates") {
-    const payload = JSON.parse(message);
-    io.to(`job:${payload.jobId}`).emit("job:update", payload);
+    try {
+      const payload = JSON.parse(message);
+      io.to(`job:${payload.jobId}`).emit("job:update", payload);
+    } catch (err) {
+      console.error("Failed to parse job-updates message:", err.message);
+    }
   }
 });
 

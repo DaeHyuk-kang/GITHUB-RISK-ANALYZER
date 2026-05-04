@@ -52,6 +52,9 @@ class AnalysisService {
    * 대량 분석 요청
    */
   async requestBulkAnalysis(repos) {
+    if (!Array.isArray(repos) || repos.length === 0 || repos.length > 10) {
+      throw new Error("repos must be an array of 1 to 10 items");
+    }
     const results = await Promise.all(
       repos.map(repo => this.requestAnalysis(repo))
     );
@@ -79,7 +82,7 @@ class AnalysisService {
 
     let result = null;
     if (state === "completed") {
-      result = await job.returnvalue;
+      result = job.returnvalue;
     }
 
     // DB에서 최신 정보 확인 (변화량 계산 포함)
