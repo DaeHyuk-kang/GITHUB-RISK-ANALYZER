@@ -2,9 +2,9 @@ require("dotenv").config();
 
 const http = require("http");
 const { Server } = require("socket.io");
-const Redis = require("ioredis");
 const app = require("./app");
 const registerSocket = require("./sockets/socketHandler");
+const { createRedisClient } = require("./config/redis");
 
 const server = http.createServer(app);
 
@@ -15,9 +15,7 @@ const io = new Server(server, {
 });
 
 // Setup Redis Subscription for Worker updates
-const subscriber = new Redis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
-  maxRetriesPerRequest: null
-});
+const subscriber = createRedisClient();
 
 subscriber.subscribe("job-updates", (err, count) => {
   if (err) {

@@ -1,6 +1,6 @@
 const { Worker } = require("bullmq");
-const Redis = require("ioredis");
 const redisConnection = require("../config/redis");
+const { createRedisClient } = require("../config/redis");
 const analysisModel = require("../models/analysisModel");
 const {
   getRepo,
@@ -12,9 +12,7 @@ const {
 const { calculateRiskScore } = require("../services/riskAnalyzer");
 
 // Redis Publisher 생성 (진행 상황 전송용)
-const publisher = new Redis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
-  maxRetriesPerRequest: null
-});
+const publisher = createRedisClient();
 
 function emitJobUpdate(jobId, payload) {
   // Redis 채널로 진행 상황 발행 (서버가 받아서 소켓으로 전달함)
