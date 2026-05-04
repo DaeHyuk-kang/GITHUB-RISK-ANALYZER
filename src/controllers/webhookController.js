@@ -1,23 +1,33 @@
 const crypto = require("crypto");
-const analyzeQueue = require("../queues/analyzeQueue");
+const analysisService = require("../services/analysisService");
 
 /**
  * Verify GitHub Webhook Signature
+ * req.body must be a raw Buffer (captured via express.raw middleware).
  */
 function verifySignature(req) {
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
   if (!secret) {
-    console.warn("⚠️ GITHUB_WEBHOOK_SECRET is not set. Skipping signature verification (NOT RECOMMENDED for production).");
-    return true;
+    console.error("❌ GITHUB_WEBHOOK_SECRET is not set. Rejecting webhook request.");
+    return false;
   }
 
   const signature = req.headers["x-hub-signature-256"];
   if (!signature) return false;
 
   const hmac = crypto.createHmac("sha256", secret);
-  const digest = "sha256=" + hmac.update(JSON.stringify(req.body)).digest("hex");
+  const digest = "sha256=" + hmac.update(req.body).digest("hex");
 
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
+  try {
+    const signatureBuffer = Buffer.from(signature);
+    const digestBuffer = Buffer.from(digest);
+    if (signatureBuffer.length !== digestBuffer.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(signatureBuffer, digestBuffer);
+  } catch (err) {
+    return false;
+  }
 }
 
 async function handleGitHubWebhook(req, res) {
@@ -31,8 +41,15 @@ async function handleGitHubWebhook(req, res) {
       });
     }
 
+    // 2. Parse raw body after signature is verified
+    let payload;
+    try {
+      payload = JSON.parse(req.body.toString("utf8"));
+    } catch {
+      return res.status(400).json({ success: false, message: "Invalid JSON payload" });
+    }
+
     const event = req.headers["x-github-event"];
-    const payload = req.body;
 
     if (!payload.repository || !payload.repository.full_name) {
       return res.status(400).json({
@@ -43,18 +60,12 @@ async function handleGitHubWebhook(req, res) {
 
     const repo = payload.repository.full_name;
     const relevantEvents = ["push", "issues", "pull_request"];
-    
+
     if (relevantEvents.includes(event)) {
       console.log(`🔔 Verified Webhook received: Event '${event}' for repo '${repo}'`);
-      
-      await analyzeQueue.add("analyze", { 
-        repo, 
-        source: "webhook", 
-        event 
-      }, {
-        removeOnComplete: 100,
-        removeOnFail: 100
-      });
+
+      // analysisService를 사용하여 DB 기록 및 큐 추가
+      await analysisService.requestAnalysis(repo);
     }
 
     return res.status(200).json({
