@@ -1,14 +1,13 @@
 const analysisModel = require("../models/analysisModel");
 const analyzeQueue = require("../queues/analyzeQueue");
+const { parseRepo } = require("../utils/parseRepo");
 
 class AnalysisService {
   /**
    * 단일 저장소 분석 요청 (DB 저장 및 큐 추가)
    */
   async requestAnalysis(repoName) {
-    if (!repoName || !repoName.includes("/")) {
-      throw new Error("Invalid repo format (owner/repo)");
-    }
+    repoName = parseRepo(repoName);
 
     // 1. DB에 기록 (PENDING)
     const dbId = await analysisModel.create({ repoName });

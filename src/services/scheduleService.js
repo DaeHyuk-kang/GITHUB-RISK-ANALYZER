@@ -1,13 +1,12 @@
 const analyzeQueue = require("../queues/analyzeQueue");
 const scheduleModel = require("../models/scheduleModel");
+const { parseRepo } = require("../utils/parseRepo");
 
 const DEFAULT_CRON = "0 0 * * *"; // 매일 자정
 
 class ScheduleService {
   async addSchedule(repoName, cronPattern = DEFAULT_CRON) {
-    if (!repoName || !repoName.includes("/")) {
-      throw new Error("Invalid repo format (owner/repo)");
-    }
+    repoName = parseRepo(repoName);
 
     await scheduleModel.create(repoName, cronPattern);
 
