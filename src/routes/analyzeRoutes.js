@@ -13,6 +13,7 @@ router.post("/jobs/:id/retry", (req, res) => analysisController.retryJob(req, re
 
 // 결과 조회 관련
 router.get("/analyses/recent", (req, res) => analysisController.getRecent(req, res));
+router.get("/analyses/repo/:owner/:repo/history", (req, res) => analysisController.getRepoHistory(req, res));
 router.get("/analyses/repo/:owner/:repo", (req, res) => analysisController.getRepoResult(req, res));
 router.post("/analyses/compare", (req, res) => analysisController.compare(req, res));
 module.exports = router;

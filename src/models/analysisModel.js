@@ -64,6 +64,21 @@ class AnalysisModel {
   }
 
   /**
+   * 특정 저장소의 분석 히스토리 조회 (최신순, 최대 20개)
+   */
+  async getHistoryByRepo(repoName, limit = 20) {
+    const [rows] = await db.execute(
+      `SELECT id, risk_score, risk_level, created_at
+       FROM analyses
+       WHERE repo_name = ? AND status = 'COMPLETED'
+       ORDER BY created_at ASC
+       LIMIT ?`,
+      [repoName, limit]
+    );
+    return rows;
+  }
+
+  /**
    * ID로 분석 정보 조회
    */
   async getById(id) {

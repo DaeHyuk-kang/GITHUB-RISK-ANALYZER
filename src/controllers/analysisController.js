@@ -102,6 +102,21 @@ class AnalysisController {
   }
 
   /**
+   * 특정 저장소의 분석 히스토리 조회
+   * GET /api/analyses/repo/:owner/:repo/history
+   */
+  async getRepoHistory(req, res) {
+    try {
+      const { owner, repo } = req.params;
+      const repoName = `${owner}/${repo}`;
+      const history = await analysisService.getRepoHistory(repoName);
+      return res.json({ success: true, count: history.length, data: history });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
    * 재분석 요청
    * POST /api/analyze/re
    */

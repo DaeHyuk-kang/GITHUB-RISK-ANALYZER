@@ -681,6 +681,12 @@
                             <canvas id="statusChart"></canvas>
                         </div>
 
+                        <!-- History Chart -->
+                        <div class="card full-width" id="historyCard" style="display:none;">
+                            <h3><i class="fas fa-chart-line"></i> Score History</h3>
+                            <canvas id="historyChart"></canvas>
+                        </div>
+
                         <!-- Detailed Metrics -->
                         <div class="card full-width">
                             <h3><i class="fas fa-list-ul"></i> Detailed Metrics</h3>
@@ -959,7 +965,7 @@
 
         // ── Socket ─────────────────────────────────────────────────
         const socket = io();
-        let scoreChart = null, statusChart = null;
+        let scoreChart = null, statusChart = null, historyChart = null;
         let compareChartA = null, compareChartB = null;
 
         // ── DOM refs ───────────────────────────────────────────────
@@ -1135,7 +1141,9 @@
             document.getElementById("resPRRate").textContent = data.pr_merge_rate + "%";
 
             drawCharts(data);
-            loadAlertSub(data._repoName || repoInput.value.trim());
+            const repoName = repoInput.value.trim();
+            loadAlertSub(repoName);
+            loadHistoryChart(repoName);
         }
 
         // ── Alert Subscription ─────────────────────────────────────
@@ -1188,6 +1196,70 @@
                 }
             } catch (e) { status.textContent = "Failed to save"; }
         });
+
+        // ── History Chart ──────────────────────────────────────────
+        async function loadHistoryChart(repoName) {
+            const card = document.getElementById("historyCard");
+            try {
+                const [owner, repo] = repoName.split("/");
+                const res = await fetch(`/api/analyses/repo/${owner}/${repo}/history`);
+                const data = await res.json();
+
+                if (!data.success || data.data.length < 2) {
+                    card.style.display = "none";
+                    return;
+                }
+
+                card.style.display = "block";
+
+                const labels = data.data.map(d => new Date(d.created_at).toLocaleDateString());
+                const scores = data.data.map(d => d.risk_score);
+
+                if (historyChart) historyChart.destroy();
+                historyChart = new Chart(document.getElementById("historyChart").getContext("2d"), {
+                    type: "line",
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: "Risk Score",
+                            data: scores,
+                            borderColor: "#58a6ff",
+                            backgroundColor: "rgba(88,166,255,0.1)",
+                            pointBackgroundColor: scores.map(s => s >= 80 ? "#3fb950" : s >= 60 ? "#d29922" : "#f85149"),
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                min: 0,
+                                max: 100,
+                                grid: { color: "#30363d" },
+                                ticks: {
+                                    callback: v => v + " pts"
+                                }
+                            },
+                            x: { grid: { display: false } }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: ctx => `Score: ${ctx.parsed.y}  (${data.data[ctx.dataIndex].risk_level})`
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (_) {
+                card.style.display = "none";
+            }
+        }
 
         function drawCharts(data) {
             Chart.defaults.color = "#8b949e";
