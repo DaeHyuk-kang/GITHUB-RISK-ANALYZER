@@ -125,14 +125,22 @@ class AnalysisService {
     const current = results[0];
     const previous = results[1] || null;
 
-    // JSON 필드 파싱
     if (current.result_data && typeof current.result_data === 'string') {
       current.result_data = JSON.parse(current.result_data);
+    }
+
+    let previousResultData = null;
+    if (previous?.result_data) {
+      previousResultData = typeof previous.result_data === 'string'
+        ? JSON.parse(previous.result_data)
+        : previous.result_data;
     }
 
     return {
       ...current,
       previous_score: previous ? previous.risk_score : null,
+      previous_risk_level: previous ? previous.risk_level : null,
+      previous_detail_scores: previousResultData?.detail_scores || null,
       score_diff: previous ? (current.risk_score - previous.risk_score) : 0
     };
   }

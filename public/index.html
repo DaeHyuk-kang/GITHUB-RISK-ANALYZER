@@ -282,6 +282,29 @@
         .diff-up { color: #3fb950; }
         .diff-down { color: #f85149; }
 
+        .compare-prev-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .compare-prev-table th {
+            text-align: left;
+            color: var(--text-secondary);
+            font-weight: 600;
+            padding: 8px 10px;
+            border-bottom: 1px solid #30363d;
+        }
+        .compare-prev-table td {
+            padding: 10px 10px;
+            border-bottom: 1px solid #21262d;
+            vertical-align: middle;
+        }
+        .compare-prev-table tr:last-child td { border-bottom: none; }
+        .compare-prev-table .metric-name { color: var(--text-secondary); }
+        .compare-prev-table .val-current { font-weight: 700; color: var(--accent-color); }
+        .compare-prev-table .val-prev { color: var(--text-secondary); }
+        .compare-prev-table .val-diff { font-weight: 700; min-width: 54px; text-align: right; }
+
         .alert-badge {
             margin-top: 10px;
             font-size: 0.8rem;
@@ -685,6 +708,22 @@
                         <div class="card full-width" id="historyCard" style="display:none;">
                             <h3><i class="fas fa-chart-line"></i> Score History</h3>
                             <canvas id="historyChart"></canvas>
+                        </div>
+
+                        <!-- Previous Analysis Comparison -->
+                        <div class="card full-width" id="prevCompareCard" style="display:none;">
+                            <h3><i class="fas fa-code-compare"></i> vs. Previous Analysis</h3>
+                            <table class="compare-prev-table">
+                                <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Previous</th>
+                                        <th>Current</th>
+                                        <th style="text-align:right;">Change</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="prevCompareBody"></tbody>
+                            </table>
                         </div>
 
                         <!-- Detailed Metrics -->
@@ -1141,6 +1180,7 @@
             document.getElementById("resPRRate").textContent = data.pr_merge_rate + "%";
 
             drawCharts(data);
+            renderPrevCompare(data);
             const repoName = repoInput.value.trim();
             loadAlertSub(repoName);
             loadHistoryChart(repoName);
@@ -1259,6 +1299,42 @@
             } catch (_) {
                 card.style.display = "none";
             }
+        }
+
+        function renderPrevCompare(data) {
+            const card = document.getElementById("prevCompareCard");
+            const body = document.getElementById("prevCompareBody");
+            const prev = data.previous_detail_scores;
+            const curr = data.detail_scores;
+
+            if (!prev || !curr) {
+                card.style.display = "none";
+                return;
+            }
+
+            const metrics = [
+                { label: "Activity",    prevVal: prev.activity,    currVal: curr.activity },
+                { label: "Contributor", prevVal: prev.contributor, currVal: curr.contributor },
+                { label: "Issue",       prevVal: prev.issue,       currVal: curr.issue },
+                { label: "PR",          prevVal: prev.pr,          currVal: curr.pr },
+                { label: "Total Score", prevVal: data.previous_score, currVal: data.risk_score, bold: true }
+            ];
+
+            body.innerHTML = metrics.map(({ label, prevVal, currVal, bold }) => {
+                const diff = Math.round((currVal - prevVal) * 100) / 100;
+                const sign = diff > 0 ? "+" : "";
+                const cls = diff > 0 ? "diff-up" : diff < 0 ? "diff-down" : "";
+                const arrow = diff > 0 ? " ▲" : diff < 0 ? " ▼" : " —";
+                const style = bold ? "font-weight:700;" : "";
+                return `<tr>
+                    <td class="metric-name" style="${style}">${label}</td>
+                    <td class="val-prev">${prevVal ?? "-"}</td>
+                    <td class="val-current" style="${style}">${currVal ?? "-"}</td>
+                    <td class="val-diff ${cls}">${diff !== 0 ? sign + diff + arrow : "—"}</td>
+                </tr>`;
+            }).join("");
+
+            card.style.display = "block";
         }
 
         function drawCharts(data) {

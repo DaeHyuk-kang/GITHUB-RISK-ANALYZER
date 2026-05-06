@@ -189,6 +189,13 @@ const analyzeWorker = new Worker(
       const previous = results[1] || null;
       const scoreDiff = previous ? (result.risk_score - previous.risk_score) : 0;
 
+      let previousResultData = null;
+      if (previous?.result_data) {
+        previousResultData = typeof previous.result_data === 'string'
+          ? JSON.parse(previous.result_data)
+          : previous.result_data;
+      }
+
       emitJobUpdate(job.id, {
         status: "DONE",
         progress: 100,
@@ -196,6 +203,8 @@ const analyzeWorker = new Worker(
         result: {
           ...result,
           previous_score: previous ? previous.risk_score : null,
+          previous_risk_level: previous ? previous.risk_level : null,
+          previous_detail_scores: previousResultData?.detail_scores || null,
           score_diff: scoreDiff
         }
       });
