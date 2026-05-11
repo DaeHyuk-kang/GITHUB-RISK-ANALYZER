@@ -668,6 +668,9 @@
                             <div id="alertBadge" class="alert-badge hidden">
                                 <i class="fas fa-bell"></i> Slack alert triggered
                             </div>
+                            <button id="reanalyzeBtn" style="margin-top:14px; font-size:0.82rem; padding:6px 14px; background:transparent; border:1px solid var(--border-color); border-radius:6px; color:var(--text-secondary); cursor:pointer;">
+                                <i class="fas fa-sync-alt"></i> Re-analyze
+                            </button>
                         </div>
 
                         <!-- Repo Info -->
@@ -1050,11 +1053,10 @@
                             <span>${new Date(item.created_at).toLocaleDateString()}</span>
                             <span class="score-tag" style="background:${color}22; color:${color}">${item.risk_score ?? 0}</span>
                         </div>`;
-                    li.addEventListener("click", () => {
-                        // Switch to analyze tab and trigger
+                    li.addEventListener("click", async () => {
                         document.querySelector('[data-tab="analyze"]').click();
                         repoInput.value = item.repo;
-                        analyzeBtn.click();
+                        await loadExistingResult(item.repo);
                     });
                     recentList.appendChild(li);
                 });
@@ -1062,6 +1064,47 @@
                 console.error("Failed to load recent analyses:", e);
             }
         }
+
+        // ── Load existing result (no new job) ─────────────────────
+        function flattenApiResult(data) {
+            return {
+                ...(data.result_data || {}),
+                risk_score: data.risk_score,
+                risk_level: data.risk_level,
+                previous_score: data.previous_score,
+                previous_risk_level: data.previous_risk_level,
+                previous_detail_scores: data.previous_detail_scores,
+                score_diff: data.score_diff
+            };
+        }
+
+        async function loadExistingResult(repoName) {
+            initialMessage.classList.add("hidden");
+            resultContainer.classList.add("hidden");
+            progressBox.classList.remove("hidden");
+            progressBar.style.width = "100%";
+            progressPercent.textContent = "100%";
+            progressStep.innerHTML = `<i class="fas fa-database"></i> Loading saved result...`;
+
+            try {
+                const [owner, repo] = repoName.split("/");
+                const res = await fetch(`/api/analyses/repo/${owner}/${repo}`);
+                const json = await res.json();
+                if (json.success && json.data) {
+                    displayResult(flattenApiResult(json.data));
+                } else {
+                    progressBox.classList.add("hidden");
+                    initialMessage.classList.remove("hidden");
+                }
+            } catch (e) {
+                progressBox.classList.add("hidden");
+                initialMessage.classList.remove("hidden");
+            }
+        }
+
+        document.getElementById("reanalyzeBtn").addEventListener("click", () => {
+            analyzeBtn.click();
+        });
 
         // ── Analyze ────────────────────────────────────────────────
         analyzeBtn.addEventListener("click", async () => {
