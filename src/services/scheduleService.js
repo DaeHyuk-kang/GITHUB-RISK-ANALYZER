@@ -45,9 +45,10 @@ class ScheduleService {
   async listSchedules() {
     const schedules = await scheduleModel.getAll();
     const repeatableJobs = await analyzeQueue.getRepeatableJobs();
+    const jobMap = new Map(repeatableJobs.map(j => [j.id, j]));
 
     return schedules.map(s => {
-      const bullJob = repeatableJobs.find(j => j.id === `schedule:${s.repo_name}`);
+      const bullJob = jobMap.get(`schedule:${s.repo_name}`);
       return {
         repoName: s.repo_name,
         cronPattern: s.cron_pattern,
