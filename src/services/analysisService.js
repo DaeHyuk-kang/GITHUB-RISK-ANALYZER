@@ -152,12 +152,6 @@ class AnalysisService {
     return await analysisModel.getHistoryByRepo(repoName);
   }
 
-  /**
-   * 재분석 API (기존 데이터를 무시하고 새 작업 생성)
-   */
-  async reanalyze(repoName) {
-    return await this.requestAnalysis(repoName);
-  }
 }
 
 module.exports = new AnalysisService();

@@ -1,5 +1,8 @@
 const jwt = require("jsonwebtoken");
 
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET environment variable is required");
+
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {
@@ -7,7 +10,7 @@ function authMiddleware(req, res, next) {
   }
 
   try {
-    req.user = jwt.verify(auth.slice(7), process.env.JWT_SECRET || "gra-secret-key");
+    req.user = jwt.verify(auth.slice(7), JWT_SECRET);
     next();
   } catch {
     return res.status(401).json({ success: false, message: "Invalid or expired token" });

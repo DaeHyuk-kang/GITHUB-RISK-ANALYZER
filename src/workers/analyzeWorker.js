@@ -170,19 +170,19 @@ const analyzeWorker = new Worker(
         await sendSlackAlert({ repo, score: result.risk_score, level: result.risk_level, threshold: slackThreshold });
       }
 
-      // 구독자별 이메일 알림
+      // 구독자별 이메일 알림 (병렬 전송)
       const subscribers = await alertSubscriptionModel.getSubscribersForRepo(repo);
-      for (const sub of subscribers) {
-        if (result.risk_score < sub.threshold) {
-          await sendAlertEmail({
+      await Promise.all(
+        subscribers
+          .filter(sub => result.risk_score < sub.threshold)
+          .map(sub => sendAlertEmail({
             to: sub.email,
             repo,
             score: result.risk_score,
             level: result.risk_level,
             threshold: sub.threshold
-          });
-        }
-      }
+          }))
+      );
 
       // 이전 점수 조회 (변화량 계산)
       const results = await analysisModel.getTwoLatestByRepo(repo);

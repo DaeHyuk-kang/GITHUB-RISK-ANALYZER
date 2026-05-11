@@ -1,6 +1,9 @@
 const jwt = require("jsonwebtoken");
 const userModel = require("../models/userModel");
 
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET environment variable is required");
+
 class AuthService {
   async register(email, password) {
     if (!email || !password) throw new Error("Email and password are required");
@@ -27,11 +30,7 @@ class AuthService {
   }
 
   _sign(userId, email) {
-    return jwt.sign(
-      { userId, email },
-      process.env.JWT_SECRET || "gra-secret-key",
-      { expiresIn: "7d" }
-    );
+    return jwt.sign({ userId, email }, JWT_SECRET, { expiresIn: "7d" });
   }
 }
 

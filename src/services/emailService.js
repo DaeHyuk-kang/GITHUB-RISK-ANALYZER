@@ -1,25 +1,21 @@
 const nodemailer = require("nodemailer");
 
-function createTransport() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_SECURE === "true",
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    }
-  });
-}
+const transporter = (process.env.SMTP_HOST && process.env.SMTP_USER)
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: process.env.SMTP_SECURE === "true",
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    })
+  : null;
 
 async function sendAlertEmail({ to, repo, score, level, threshold }) {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+  if (!transporter) {
     console.warn("Email alert skipped: SMTP_HOST or SMTP_USER not configured");
     return;
   }
 
   try {
-    const transporter = createTransport();
     await transporter.sendMail({
       from: `"GitHub Risk Analyzer" <${process.env.SMTP_USER}>`,
       to,

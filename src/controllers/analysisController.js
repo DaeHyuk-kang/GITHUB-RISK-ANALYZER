@@ -116,19 +116,6 @@ class AnalysisController {
     }
   }
 
-  /**
-   * 재분석 요청
-   * POST /api/analyze/re
-   */
-  async reanalyze(req, res) {
-    try {
-      const { repo } = req.body;
-      const result = await analysisService.reanalyze(repo);
-      return res.status(202).json({ success: true, ...result });
-    } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
-    }
-  }
 }
 
 module.exports = new AnalysisController();

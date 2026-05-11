@@ -8,6 +8,11 @@ class ScheduleService {
   async addSchedule(repoName, cronPattern = DEFAULT_CRON) {
     repoName = parseRepo(repoName);
 
+    // 기존 BullMQ 반복 작업이 있으면 제거 후 재등록 (크론 변경 대응)
+    const existing = await analyzeQueue.getRepeatableJobs();
+    const old = existing.find(j => j.id === `schedule:${repoName}`);
+    if (old) await analyzeQueue.removeRepeatableByKey(old.key);
+
     await scheduleModel.create(repoName, cronPattern);
 
     await analyzeQueue.add(
