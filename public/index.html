@@ -629,6 +629,7 @@
             <!-- Tab Nav -->
             <nav class="tabs">
                 <button class="tab-btn active" data-tab="analyze"><i class="fas fa-search"></i> Analyze</button>
+                <button class="tab-btn" data-tab="bulk"><i class="fas fa-layer-group"></i> Bulk</button>
                 <button class="tab-btn" data-tab="compare"><i class="fas fa-code-compare"></i> Compare</button>
                 <button class="tab-btn" data-tab="schedule"><i class="fas fa-clock"></i> Schedules</button>
             </nav>
@@ -709,8 +710,9 @@
 
                         <!-- History Chart -->
                         <div class="card full-width" id="historyCard" style="display:none;">
-                            <h3><i class="fas fa-chart-line"></i> Score History</h3>
+                            <h3><i class="fas fa-chart-line"></i> Score History <span style="font-size:0.78rem;color:var(--text-secondary);font-weight:400;">— click a point for details</span></h3>
                             <canvas id="historyChart"></canvas>
+                            <div id="historyPointDetail" style="display:none;margin-top:14px;padding:12px;background:#161b22;border-radius:8px;border:1px solid #30363d;font-size:0.88rem;"></div>
                         </div>
 
                         <!-- Previous Analysis Comparison -->
@@ -784,6 +786,20 @@
                     <i class="fas fa-rocket fa-3x" style="margin-bottom:16px; display:block; opacity:0.3;"></i>
                     <p>Enter a GitHub repository above to start the analysis.</p>
                     <p style="font-size:0.85rem; margin-top:8px; opacity:0.6;">GitHub URLs are also supported.</p>
+                </div>
+            </div>
+
+            <!-- ══ Bulk Tab ══ -->
+            <div id="tab-bulk" class="tab-content">
+                <div class="card">
+                    <h3><i class="fas fa-layer-group"></i> Bulk Analysis</h3>
+                    <p style="color:var(--text-secondary);font-size:0.88rem;margin-bottom:14px;">Enter up to 10 repositories, one per line.</p>
+                    <textarea id="bulkInput" rows="6" style="width:100%;background:#161b22;border:1px solid var(--border-color);border-radius:8px;color:var(--text-color);padding:10px;font-size:0.9rem;resize:vertical;box-sizing:border-box;" placeholder="facebook/react&#10;vuejs/vue&#10;https://github.com/expressjs/express"></textarea>
+                    <button id="bulkBtn" style="width:100%;margin-top:12px;padding:12px;"><i class="fas fa-bolt"></i> Analyze All</button>
+                </div>
+                <div id="bulkResults" style="margin-top:16px;display:none;">
+                    <h3 style="margin-bottom:12px;"><i class="fas fa-list-check"></i> Results</h3>
+                    <div id="bulkList"></div>
                 </div>
             </div>
 
@@ -916,6 +932,18 @@
             return { "Content-Type": "application/json", "Authorization": "Bearer " + getToken() };
         }
 
+        async function authFetch(url, options = {}) {
+            const res = await fetch(url, {
+                ...options,
+                headers: { ...authHeaders(), ...(options.headers || {}) }
+            });
+            if (res.status === 401) {
+                clearAuth();
+                return null;
+            }
+            return res;
+        }
+
         function showAuthError(msg) {
             authError.textContent = msg;
             authError.style.display = "block";
@@ -1009,6 +1037,9 @@
         const socket = io();
         let scoreChart = null, statusChart = null, historyChart = null;
         let compareChartA = null, compareChartB = null;
+        let pollingInterval = null;
+        let currentJobId = null;
+        let historyPoints = [];
 
         // ── DOM refs ───────────────────────────────────────────────
         const analyzeBtn      = document.getElementById("analyzeBtn");
@@ -1133,21 +1164,21 @@
                     return;
                 }
 
-                const jobId = data.jobId;
-                socket.emit("join-job", jobId);
+                currentJobId = data.jobId;
+                socket.emit("join-job", currentJobId);
 
                 // Polling fallback
-                const interval = setInterval(async () => {
+                if (pollingInterval) clearInterval(pollingInterval);
+                pollingInterval = setInterval(async () => {
                     try {
-                        const sr = await fetch(`/api/jobs/${jobId}`);
+                        const sr = await fetch(`/api/jobs/${currentJobId}`);
                         const sd = await sr.json();
                         if (sd.status === "COMPLETED" || sd.status === "DONE") {
-                            clearInterval(interval);
+                            clearInterval(pollingInterval); pollingInterval = null;
                             if (resultContainer.classList.contains("hidden")) displayResult(sd.result);
                         } else if (sd.status === "FAILED") {
-                            clearInterval(interval);
-                            progressBox.classList.add("hidden");
-                            alert("Analysis failed");
+                            clearInterval(pollingInterval); pollingInterval = null;
+                            showAnalysisFailed(sd.error || "Unknown error", currentJobId);
                         }
                     } catch (_) {}
                 }, 3000);
@@ -1169,13 +1200,55 @@
                 progressStep.innerHTML = `<i class="fas fa-circle-notch spinner"></i> ${payload.step}`;
             }
             if (payload.status === "DONE") {
+                if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
                 displayResult(payload.result);
-                loadRecentAnalyses();
             } else if (payload.status === "FAILED") {
-                progressBox.classList.add("hidden");
-                alert("Analysis failed: " + payload.error);
+                if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+                showAnalysisFailed(payload.error || "Unknown error", payload.jobId);
             }
         });
+
+        socket.on("analysis:complete", () => {
+            loadRecentAnalyses();
+        });
+
+        function showAnalysisFailed(errorMsg, jobId) {
+            progressBox.classList.remove("hidden");
+            progressBar.style.width = "100%";
+            progressBar.style.background = "#f85149";
+            progressPercent.textContent = "Failed";
+            progressStep.innerHTML = `
+                <span style="color:#f85149"><i class="fas fa-exclamation-circle"></i> ${errorMsg}</span>
+                <button id="retryJobBtn" style="margin-left:12px;padding:4px 12px;font-size:0.82rem;background:transparent;border:1px solid #f85149;border-radius:6px;color:#f85149;cursor:pointer;">
+                    <i class="fas fa-redo"></i> Retry
+                </button>`;
+            document.getElementById("retryJobBtn").addEventListener("click", async () => {
+                try {
+                    await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+                    progressBar.style.background = "";
+                    progressBar.style.width = "0%";
+                    progressPercent.textContent = "0%";
+                    progressStep.innerHTML = `<i class="fas fa-circle-notch spinner"></i> Retrying...`;
+                    socket.emit("join-job", jobId);
+                    if (pollingInterval) clearInterval(pollingInterval);
+                    pollingInterval = setInterval(async () => {
+                        try {
+                            const sr = await fetch(`/api/jobs/${jobId}`);
+                            const sd = await sr.json();
+                            if (sd.status === "COMPLETED" || sd.status === "DONE") {
+                                clearInterval(pollingInterval); pollingInterval = null;
+                                if (resultContainer.classList.contains("hidden")) displayResult(sd.result);
+                            } else if (sd.status === "FAILED") {
+                                clearInterval(pollingInterval); pollingInterval = null;
+                                showAnalysisFailed(sd.error || "Unknown error", jobId);
+                            }
+                        } catch (_) {}
+                    }, 3000);
+                } catch (e) {
+                    alert("Retry failed: " + e.message);
+                }
+            });
+        }
 
         function displayResult(data) {
             progressBox.classList.add("hidden");
@@ -1244,7 +1317,7 @@
 
             try {
                 const [owner, repo] = repoName.split("/");
-                const res = await fetch(`/api/alerts/${owner}/${repo}`, { headers: authHeaders() });
+                const res = await authFetch(`/api/alerts/${owner}/${repo}`);
                 const data = await res.json();
                 if (data.success && data.data) {
                     checkbox.checked = true;
@@ -1265,16 +1338,16 @@
 
             try {
                 if (checkbox.checked) {
-                    const res = await fetch("/api/alerts", {
+                    const res = await authFetch("/api/alerts", {
                         method: "POST",
-                        headers: authHeaders(),
                         body: JSON.stringify({ repo: currentRepo, threshold })
                     });
+                    if (!res) return;
                     const data = await res.json();
                     if (!data.success) { status.textContent = "Error: " + data.message; return; }
                     status.textContent = `✓ Alert set: score < ${threshold}`;
                 } else {
-                    await fetch(`/api/alerts/${owner}/${repo}`, { method: "DELETE", headers: authHeaders() });
+                    await authFetch(`/api/alerts/${owner}/${repo}`, { method: "DELETE" });
                     status.textContent = "Alert removed";
                 }
             } catch (e) { status.textContent = "Failed to save"; }
@@ -1293,10 +1366,11 @@
                     return;
                 }
 
+                historyPoints = data.data;
                 card.style.display = "block";
 
-                const labels = data.data.map(d => new Date(d.created_at).toLocaleDateString());
-                const scores = data.data.map(d => d.risk_score);
+                const labels = historyPoints.map(d => new Date(d.created_at).toLocaleDateString());
+                const scores = historyPoints.map(d => d.risk_score);
 
                 if (historyChart) historyChart.destroy();
                 historyChart = new Chart(document.getElementById("historyChart").getContext("2d"), {
@@ -1317,15 +1391,14 @@
                         }]
                     },
                     options: {
+                        onClick: (_, elements) => {
+                            if (elements.length > 0) showHistoryPointDetail(historyPoints[elements[0].index]);
+                        },
                         scales: {
                             y: {
-                                beginAtZero: false,
-                                min: 0,
-                                max: 100,
+                                beginAtZero: false, min: 0, max: 100,
                                 grid: { color: "#30363d" },
-                                ticks: {
-                                    callback: v => v + " pts"
-                                }
+                                ticks: { callback: v => v + " pts" }
                             },
                             x: { grid: { display: false } }
                         },
@@ -1333,7 +1406,7 @@
                             legend: { display: false },
                             tooltip: {
                                 callbacks: {
-                                    label: ctx => `Score: ${ctx.parsed.y}  (${data.data[ctx.dataIndex].risk_level})`
+                                    label: ctx => `Score: ${ctx.parsed.y}  (${historyPoints[ctx.dataIndex].risk_level}) — click for details`
                                 }
                             }
                         }
@@ -1342,6 +1415,29 @@
             } catch (_) {
                 card.style.display = "none";
             }
+        }
+
+        function showHistoryPointDetail(point) {
+            const el = document.getElementById("historyPointDetail");
+            if (!point) { el.style.display = "none"; return; }
+            const d = point.detail_scores;
+            const date = new Date(point.created_at).toLocaleString();
+            const color = scoreColor(point.risk_score);
+            el.style.display = "block";
+            el.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <strong>${date}</strong>
+                    <span style="font-weight:700;color:${color}">${point.risk_score} pts &nbsp;<span style="font-size:0.82rem;color:var(--text-secondary)">${point.risk_level}</span></span>
+                </div>
+                ${d ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;">
+                    ${["Activity","Contributor","Issue","PR"].map((name, i) => {
+                        const val = [d.activity, d.contributor, d.issue, d.pr][i];
+                        return `<div style="background:#0d1117;border-radius:6px;padding:8px;">
+                            <div style="color:var(--text-secondary);font-size:0.78rem;">${name}</div>
+                            <div style="font-weight:700;color:${scoreColor(val)}">${val}</div>
+                        </div>`;
+                    }).join("")}
+                </div>` : '<span style="color:var(--text-secondary)">Detail scores not available for this entry</span>'}`;
         }
 
         function renderPrevCompare(data) {
@@ -1492,6 +1588,80 @@
             if (compareChartB) compareChartB.destroy();
             compareChartB = new Chart(document.getElementById("compareChartB").getContext("2d"), radarOptions(repoB.resultData?.detail_scores));
         }
+
+        // ── Bulk Analysis ──────────────────────────────────────────
+        document.getElementById("bulkBtn").addEventListener("click", async () => {
+            const lines = document.getElementById("bulkInput").value
+                .split("\n").map(l => l.trim()).filter(Boolean);
+
+            if (lines.length === 0) { alert("Enter at least one repository"); return; }
+            if (lines.length > 10) { alert("Maximum 10 repositories at once"); return; }
+
+            const resultsEl = document.getElementById("bulkResults");
+            const listEl = document.getElementById("bulkList");
+            resultsEl.style.display = "block";
+
+            // 초기 상태 카드 렌더링
+            listEl.innerHTML = lines.map((repo, i) => `
+                <div id="bulk-item-${i}" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:6px;background:#161b22;border-radius:8px;border:1px solid var(--border-color);">
+                    <span style="font-weight:600;">${repo}</span>
+                    <span id="bulk-status-${i}" style="font-size:0.82rem;color:var(--text-secondary);">Queued...</span>
+                </div>`).join("");
+
+            try {
+                const res = await fetch("/api/analyze/bulk", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ repos: lines })
+                });
+                const data = await res.json();
+                if (!data.success) { alert(data.message); return; }
+
+                // 각 잡 소켓 구독 + 폴링 fallback
+                data.jobs.forEach((job, i) => {
+                    const statusEl = document.getElementById(`bulk-status-${i}`);
+                    statusEl.textContent = "Processing...";
+                    statusEl.style.color = "#d29922";
+
+                    socket.emit("join-job", job.jobId);
+
+                    const iv = setInterval(async () => {
+                        try {
+                            const sr = await fetch(`/api/jobs/${job.jobId}`);
+                            const sd = await sr.json();
+                            if (sd.status === "COMPLETED" || sd.status === "DONE") {
+                                clearInterval(iv);
+                                const score = sd.result?.risk_score ?? "?";
+                                const level = sd.result?.risk_level ?? "";
+                                statusEl.innerHTML = `<span style="color:${scoreColor(score)};font-weight:700;">${score} pts</span> <span style="color:var(--text-secondary)">${level}</span>`;
+                            } else if (sd.status === "FAILED") {
+                                clearInterval(iv);
+                                statusEl.innerHTML = `<span style="color:#f85149;">Failed</span>`;
+                            }
+                        } catch (_) {}
+                    }, 3000);
+
+                    // 소켓으로도 업데이트 처리
+                    const onUpdate = payload => {
+                        if (payload.jobId !== String(job.jobId)) return;
+                        if (payload.status === "DONE") {
+                            clearInterval(iv);
+                            const score = payload.result?.risk_score ?? "?";
+                            const level = payload.result?.risk_level ?? "";
+                            statusEl.innerHTML = `<span style="color:${scoreColor(score)};font-weight:700;">${score} pts</span> <span style="color:var(--text-secondary)">${level}</span>`;
+                            socket.off("job:update", onUpdate);
+                        } else if (payload.status === "FAILED") {
+                            clearInterval(iv);
+                            statusEl.innerHTML = `<span style="color:#f85149;">Failed</span>`;
+                            socket.off("job:update", onUpdate);
+                        }
+                    };
+                    socket.on("job:update", onUpdate);
+                });
+            } catch (e) {
+                alert("Bulk analysis error: " + e.message);
+            }
+        });
 
         // ── Schedules ──────────────────────────────────────────────
         document.getElementById("schedulePreset").addEventListener("change", function () {

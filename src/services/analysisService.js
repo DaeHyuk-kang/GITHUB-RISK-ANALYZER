@@ -76,23 +76,37 @@ class AnalysisService {
       throw new Error("Job not found");
     }
 
-    const state = await job.getState(); // completed, failed, active, waiting, delayed
+    const state = await job.getState();
     const { dbId, repo } = job.data;
+    const dbRecord = dbId ? await analysisModel.getById(dbId) : null;
 
     let result = null;
-    if (state === "completed") {
-      result = job.returnvalue;
+    if (state === "completed" && repo) {
+      // previous_detail_scores 포함된 비교 데이터 반환
+      const withComparison = await this.getLatestResultByRepo(repo);
+      if (withComparison) {
+        result = {
+          ...(withComparison.result_data || {}),
+          risk_score: withComparison.risk_score,
+          risk_level: withComparison.risk_level,
+          previous_score: withComparison.previous_score,
+          previous_risk_level: withComparison.previous_risk_level,
+          previous_detail_scores: withComparison.previous_detail_scores,
+          score_diff: withComparison.score_diff
+        };
+      }
     }
 
-    // DB에서 최신 정보 확인 (변화량 계산 포함)
-    const dbRecord = await analysisModel.getById(dbId);
+    if (!result) {
+      result = job.returnvalue || (dbRecord ? dbRecord.result_data : null);
+    }
 
     return {
       success: true,
       jobId,
       status: state.toUpperCase(),
       progress: job.progress,
-      result: result || (dbRecord ? dbRecord.result_data : null),
+      result,
       dbStatus: dbRecord ? dbRecord.status : null
     };
   }

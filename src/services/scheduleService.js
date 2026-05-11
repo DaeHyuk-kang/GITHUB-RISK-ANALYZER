@@ -4,9 +4,20 @@ const { parseRepo } = require("../utils/parseRepo");
 
 const DEFAULT_CRON = "0 0 * * *"; // 매일 자정
 
+function isValidCron(pattern) {
+  if (!pattern || typeof pattern !== "string") return false;
+  const parts = pattern.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  return parts.every(p => /^[\d*\/\-,]+$/.test(p));
+}
+
 class ScheduleService {
   async addSchedule(repoName, cronPattern = DEFAULT_CRON) {
     repoName = parseRepo(repoName);
+
+    if (!isValidCron(cronPattern)) {
+      throw new Error(`Invalid cron pattern: "${cronPattern}". Expected 5 fields (e.g. "0 9 * * 1")`);
+    }
 
     // 기존 BullMQ 반복 작업이 있으면 제거 후 재등록 (크론 변경 대응)
     const existing = await analyzeQueue.getRepeatableJobs();

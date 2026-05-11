@@ -31,6 +31,11 @@ subscriber.on("message", (channel, message) => {
     try {
       const payload = JSON.parse(message);
       io.to(`job:${payload.jobId}`).emit("job:update", payload);
+      // 스케줄 분석처럼 특정 룸을 구독한 클라이언트가 없는 경우를 위해
+      // 완료/실패 시 전체 브로드캐스트 (Recent Analyses 갱신 트리거용)
+      if (payload.status === "DONE" || payload.status === "FAILED") {
+        io.emit("analysis:complete", { jobId: payload.jobId, status: payload.status });
+      }
     } catch (err) {
       console.error("Failed to parse job-updates message:", err.message);
     }

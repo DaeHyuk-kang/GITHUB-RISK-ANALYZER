@@ -68,14 +68,20 @@ class AnalysisModel {
    */
   async getHistoryByRepo(repoName, limit = 20) {
     const [rows] = await db.execute(
-      `SELECT id, risk_score, risk_level, created_at
+      `SELECT id, risk_score, risk_level, created_at, result_data
        FROM analyses
        WHERE repo_name = ? AND status = 'COMPLETED'
        ORDER BY created_at ASC
        LIMIT ?`,
       [repoName, limit]
     );
-    return rows;
+    return rows.map(r => ({
+      id: r.id,
+      risk_score: r.risk_score,
+      risk_level: r.risk_level,
+      created_at: r.created_at,
+      detail_scores: r.result_data?.detail_scores || null
+    }));
   }
 
   /**
