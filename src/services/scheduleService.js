@@ -29,7 +29,7 @@ class ScheduleService {
     const old = existing.find(j => j.id === `schedule:${repoName}`);
     if (old) await analyzeQueue.removeRepeatableByKey(old.key);
 
-    await scheduleModel.create(repoName, cronPattern);
+    await scheduleModel.upsert(repoName, cronPattern);
 
     await analyzeQueue.add(
       "analyze",

@@ -1,7 +1,7 @@
 const db = require("../config/database");
 
 class ScheduleModel {
-  async create(repoName, cronPattern) {
+  async upsert(repoName, cronPattern) {
     await db.execute(
       "INSERT INTO scheduled_repos (repo_name, cron_pattern) VALUES (?, ?) ON DUPLICATE KEY UPDATE cron_pattern = ?",
       [repoName, cronPattern, cronPattern]

@@ -42,7 +42,7 @@ describe("scheduleService", () => {
       // 큐/DB 접근 전에 검증만 통과하는지 확인 (이후 mock으로 처리)
       mock.method(analyzeQueue, "getRepeatableJobs", async () => []);
       mock.method(analyzeQueue, "add", async () => ({}));
-      mock.method(scheduleModel, "create", async () => {});
+      mock.method(scheduleModel, "upsert", async () => {});
 
       const validPatterns = ["0 9 * * 1", "*/30 * * * *", "0 0 1 * *"];
       for (const pattern of validPatterns) {
@@ -52,7 +52,7 @@ describe("scheduleService", () => {
 
       analyzeQueue.getRepeatableJobs.mock.restore();
       analyzeQueue.add.mock.restore();
-      scheduleModel.create.mock.restore();
+      scheduleModel.upsert.mock.restore();
     });
   });
 
@@ -60,7 +60,7 @@ describe("scheduleService", () => {
     test("GitHub URL 입력도 정규화되어 저장됨", async () => {
       mock.method(analyzeQueue, "getRepeatableJobs", async () => []);
       mock.method(analyzeQueue, "add", async () => ({}));
-      mock.method(scheduleModel, "create", async () => {});
+      mock.method(scheduleModel, "upsert", async () => {});
 
       const result = await scheduleService.addSchedule(
         "https://github.com/owner/repo",
@@ -72,7 +72,7 @@ describe("scheduleService", () => {
 
       analyzeQueue.getRepeatableJobs.mock.restore();
       analyzeQueue.add.mock.restore();
-      scheduleModel.create.mock.restore();
+      scheduleModel.upsert.mock.restore();
     });
 
     test("기존 반복작업이 있으면 제거 후 재등록", async () => {
@@ -80,7 +80,7 @@ describe("scheduleService", () => {
       mock.method(analyzeQueue, "getRepeatableJobs", async () => [existingJob]);
       const removeByKey = mock.method(analyzeQueue, "removeRepeatableByKey", async () => {});
       mock.method(analyzeQueue, "add", async () => ({}));
-      mock.method(scheduleModel, "create", async () => {});
+      mock.method(scheduleModel, "upsert", async () => {});
 
       await scheduleService.addSchedule("owner/repo", "0 9 * * 1");
 
@@ -90,7 +90,7 @@ describe("scheduleService", () => {
       analyzeQueue.getRepeatableJobs.mock.restore();
       analyzeQueue.removeRepeatableByKey.mock.restore();
       analyzeQueue.add.mock.restore();
-      scheduleModel.create.mock.restore();
+      scheduleModel.upsert.mock.restore();
     });
   });
 

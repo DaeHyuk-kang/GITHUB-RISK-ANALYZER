@@ -115,10 +115,12 @@ class AnalysisService {
       result = job.returnvalue || (dbRecord ? dbRecord.result_data : null);
     }
 
+    const STATUS_MAP = { active: "PROCESSING", waiting: "PENDING", completed: "COMPLETED", failed: "FAILED", delayed: "PENDING" };
+
     return {
       success: true,
       jobId,
-      status: state.toUpperCase(),
+      status: STATUS_MAP[state] || state.toUpperCase(),
       progress: job.progress,
       result,
       dbStatus: dbRecord ? dbRecord.status : null
