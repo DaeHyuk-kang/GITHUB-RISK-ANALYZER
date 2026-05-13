@@ -1040,6 +1040,7 @@
         let pollingInterval = null;
         let currentJobId = null;
         let historyPoints = [];
+        let bulkSocketHandlers = [];
 
         // ── DOM refs ───────────────────────────────────────────────
         const analyzeBtn      = document.getElementById("analyzeBtn");
@@ -1192,6 +1193,7 @@
         repoInput.addEventListener("keydown", e => { if (e.key === "Enter") analyzeBtn.click(); });
 
         socket.on("job:update", payload => {
+            if (payload.jobId !== String(currentJobId)) return;
             if (payload.progress !== undefined) {
                 progressBar.style.width = `${payload.progress}%`;
                 progressPercent.textContent = `${payload.progress}%`;
@@ -1597,6 +1599,10 @@
             if (lines.length === 0) { alert("Enter at least one repository"); return; }
             if (lines.length > 10) { alert("Maximum 10 repositories at once"); return; }
 
+            // 이전 실행에서 남은 소켓 리스너 정리
+            bulkSocketHandlers.forEach(h => socket.off("job:update", h));
+            bulkSocketHandlers = [];
+
             const resultsEl = document.getElementById("bulkResults");
             const listEl = document.getElementById("bulkList");
             resultsEl.style.display = "block";
@@ -1650,12 +1656,15 @@
                             const level = payload.result?.risk_level ?? "";
                             statusEl.innerHTML = `<span style="color:${scoreColor(score)};font-weight:700;">${score} pts</span> <span style="color:var(--text-secondary)">${level}</span>`;
                             socket.off("job:update", onUpdate);
+                            bulkSocketHandlers = bulkSocketHandlers.filter(h => h !== onUpdate);
                         } else if (payload.status === "FAILED") {
                             clearInterval(iv);
                             statusEl.innerHTML = `<span style="color:#f85149;">Failed</span>`;
                             socket.off("job:update", onUpdate);
+                            bulkSocketHandlers = bulkSocketHandlers.filter(h => h !== onUpdate);
                         }
                     };
+                    bulkSocketHandlers.push(onUpdate);
                     socket.on("job:update", onUpdate);
                 });
             } catch (e) {
@@ -1677,11 +1686,11 @@
             if (!cron) { alert("Please enter a cron expression"); return; }
 
             try {
-                const res = await fetch("/api/schedules", {
+                const res = await authFetch("/api/schedules", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repo, cronPattern: cron })
                 });
+                if (!res) return;
                 const data = await res.json();
                 if (!data.success) { alert(data.message); return; }
 
@@ -1699,7 +1708,8 @@
             body.innerHTML = `<div class="empty-state"><i class="fas fa-circle-notch spinner"></i><p>Loading...</p></div>`;
 
             try {
-                const res = await fetch("/api/schedules");
+                const res = await authFetch("/api/schedules");
+                if (!res) return;
                 const data = await res.json();
 
                 if (!data.success || data.data.length === 0) {
@@ -1713,25 +1723,30 @@
                             <tr>
                                 <th>Repository</th>
                                 <th>Cron Pattern</th>
+                                <th>Last Run</th>
                                 <th>Next Run</th>
-                                <th>Added</th>
                                 <th></th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.data.map(s => `
+                            ${data.data.map(s => {
+                                const lastColor = s.lastScore != null ? scoreColor(s.lastScore) : "var(--text-secondary)";
+                                const lastInfo = s.lastScore != null
+                                    ? `<span style="color:${lastColor};font-weight:700;">${s.lastScore}</span> <span style="color:var(--text-secondary);font-size:0.8rem;">${s.lastLevel}</span><br><span style="color:var(--text-secondary);font-size:0.75rem;">${new Date(s.lastRunAt).toLocaleString()}</span>`
+                                    : `<span style="color:var(--text-secondary);">Not yet</span>`;
+                                return `
                                 <tr>
                                     <td><strong>${s.repoName}</strong></td>
                                     <td><code style="background:#0d1117; padding: 3px 8px; border-radius: 4px; font-size:0.85rem;">${s.cronPattern}</code></td>
+                                    <td>${lastInfo}</td>
                                     <td style="color: var(--text-secondary);">${s.nextRun ? new Date(s.nextRun).toLocaleString() : "—"}</td>
-                                    <td style="color: var(--text-secondary);">${new Date(s.createdAt).toLocaleDateString()}</td>
                                     <td>
                                         <button class="btn-danger btn-sm" onclick="deleteSchedule('${s.repoName}')">
                                             <i class="fas fa-trash"></i> Remove
                                         </button>
                                     </td>
-                                </tr>
-                            `).join("")}
+                                </tr>`;
+                            }).join("")}
                         </tbody>
                     </table>`;
             } catch (e) {
@@ -1743,7 +1758,8 @@
             if (!confirm(`Remove schedule for "${repoName}"?`)) return;
             try {
                 const [owner, repo] = repoName.split("/");
-                const res = await fetch(`/api/schedules/${owner}/${repo}`, { method: "DELETE" });
+                const res = await authFetch(`/api/schedules/${owner}/${repo}`, { method: "DELETE" });
+                if (!res) return;
                 const data = await res.json();
                 if (!data.success) { alert(data.message); return; }
                 loadSchedules();

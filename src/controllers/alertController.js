@@ -18,6 +18,7 @@ class AlertController {
 
   async unsubscribe(req, res) {
     try {
+      // URL 파라미터는 라우터가 이미 구조화된 값을 주므로 parseRepo 불필요
       const repoName = `${req.params.owner}/${req.params.repo}`;
       await alertSubscriptionModel.delete(req.user.userId, repoName);
       return res.json({ success: true });

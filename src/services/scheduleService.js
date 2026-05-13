@@ -1,14 +1,19 @@
 const analyzeQueue = require("../queues/analyzeQueue");
 const scheduleModel = require("../models/scheduleModel");
+const analysisModel = require("../models/analysisModel");
 const { parseRepo } = require("../utils/parseRepo");
+const cronParser = require("cron-parser");
 
 const DEFAULT_CRON = "0 0 * * *"; // 매일 자정
 
 function isValidCron(pattern) {
   if (!pattern || typeof pattern !== "string") return false;
-  const parts = pattern.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-  return parts.every(p => /^[\d*\/\-,]+$/.test(p));
+  try {
+    cronParser.parseExpression(pattern);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 class ScheduleService {
@@ -58,15 +63,19 @@ class ScheduleService {
     const repeatableJobs = await analyzeQueue.getRepeatableJobs();
     const jobMap = new Map(repeatableJobs.map(j => [j.id, j]));
 
-    return schedules.map(s => {
+    return Promise.all(schedules.map(async s => {
       const bullJob = jobMap.get(`schedule:${s.repo_name}`);
+      const last = await analysisModel.getLatestByRepo(s.repo_name);
       return {
         repoName: s.repo_name,
         cronPattern: s.cron_pattern,
         nextRun: bullJob?.next ? new Date(bullJob.next).toISOString() : null,
-        createdAt: s.created_at
+        createdAt: s.created_at,
+        lastScore: last?.risk_score ?? null,
+        lastLevel: last?.risk_level ?? null,
+        lastRunAt: last?.created_at ?? null
       };
-    });
+    }));
   }
 
   // 서버 재시작 시 DB 스케줄을 BullMQ에 복원

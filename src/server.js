@@ -48,5 +48,9 @@ const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  await scheduleService.restoreSchedules();
+  try {
+    await scheduleService.restoreSchedules();
+  } catch (err) {
+    console.error("❌ Failed to restore schedules on startup:", err.message);
+  }
 });

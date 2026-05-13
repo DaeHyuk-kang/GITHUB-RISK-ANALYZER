@@ -21,12 +21,16 @@ class AnalysisService {
     return { jobId: job.id, dbId, status: "PENDING" };
   }
   async compareRepos(repoA, repoB) {
+    repoA = parseRepo(repoA);
+    repoB = parseRepo(repoB);
     const resultA = await analysisModel.getLatestByRepo(repoA);
     const resultB = await analysisModel.getLatestByRepo(repoB);
 
     if (!resultA || !resultB) {
       throw new Error("One or both repos have no analysis data");
     }
+
+    const parse = d => (typeof d === "string" ? JSON.parse(d) : d);
 
     return {
       repoA: {
@@ -35,7 +39,7 @@ class AnalysisService {
         level: resultA.risk_level,
         status: resultA.status,
         createdAt: resultA.created_at,
-        resultData: resultA.result_data
+        resultData: parse(resultA.result_data)
       },
       repoB: {
         name: repoB,
@@ -43,7 +47,7 @@ class AnalysisService {
         level: resultB.risk_level,
         status: resultB.status,
         createdAt: resultB.created_at,
-        resultData: resultB.result_data
+        resultData: parse(resultB.result_data)
       }
     };
   }
@@ -81,20 +85,30 @@ class AnalysisService {
     const dbRecord = dbId ? await analysisModel.getById(dbId) : null;
 
     let result = null;
-    if (state === "completed" && repo) {
-      // previous_detail_scores 포함된 비교 데이터 반환
-      const withComparison = await this.getLatestResultByRepo(repo);
-      if (withComparison) {
-        result = {
-          ...(withComparison.result_data || {}),
-          risk_score: withComparison.risk_score,
-          risk_level: withComparison.risk_level,
-          previous_score: withComparison.previous_score,
-          previous_risk_level: withComparison.previous_risk_level,
-          previous_detail_scores: withComparison.previous_detail_scores,
-          score_diff: withComparison.score_diff
-        };
+    if (state === "completed" && dbRecord) {
+      let resultData = dbRecord.result_data;
+      if (typeof resultData === "string") resultData = JSON.parse(resultData);
+
+      // 이전 분석과의 비교: dbId 기준으로 직접 특정하여 동시 분석 시 데이터 혼용 방지
+      const twoLatest = await analysisModel.getTwoLatestByRepo(repo);
+      const previous = twoLatest[0]?.id === dbRecord.id ? (twoLatest[1] || null) : null;
+
+      let prevResultData = null;
+      if (previous?.result_data) {
+        prevResultData = typeof previous.result_data === "string"
+          ? JSON.parse(previous.result_data)
+          : previous.result_data;
       }
+
+      result = {
+        ...(resultData || {}),
+        risk_score: dbRecord.risk_score,
+        risk_level: dbRecord.risk_level,
+        previous_score: previous ? previous.risk_score : null,
+        previous_risk_level: previous ? previous.risk_level : null,
+        previous_detail_scores: prevResultData?.detail_scores || null,
+        score_diff: previous ? (dbRecord.risk_score - previous.risk_score) : 0
+      };
     }
 
     if (!result) {

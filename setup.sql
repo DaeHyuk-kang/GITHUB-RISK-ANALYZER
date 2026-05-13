@@ -41,5 +41,6 @@ CREATE TABLE IF NOT EXISTS alert_subscriptions (
   threshold INT NOT NULL DEFAULT 60,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_user_repo (user_id, repo_name),
+  INDEX idx_alert_sub_repo (repo_name),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
