@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const logger = require("../config/logger");
 
 const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -13,7 +14,7 @@ const transporter = (process.env.SMTP_HOST && process.env.SMTP_USER)
 
 async function sendAlertEmail({ to, repo, score, level, threshold }) {
   if (!transporter) {
-    console.warn("Email alert skipped: SMTP_HOST or SMTP_USER not configured");
+    logger.warn("Email alert skipped: SMTP not configured", { service: "email", to });
     return;
   }
 
@@ -44,9 +45,9 @@ async function sendAlertEmail({ to, repo, score, level, threshold }) {
         </div>
       `
     });
-    console.log(`📧 Alert email sent to ${to} for ${repo}`);
+    logger.info(`Alert email sent`, { service: "email", to, repo, score, threshold });
   } catch (err) {
-    console.error("Failed to send alert email:", err.message);
+    logger.error(`Failed to send alert email`, { service: "email", to, repo, error: err.message });
   }
 }
 

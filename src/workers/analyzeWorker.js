@@ -1,6 +1,7 @@
 const { Worker } = require("bullmq");
 const redisConnection = require("../config/redis");
 const { createRedisClient } = require("../config/redis");
+const logger = require("../config/logger");
 const analysisModel = require("../models/analysisModel");
 const {
   getRepo,
@@ -37,6 +38,7 @@ const analyzeWorker = new Worker(
       if (!dbId) {
         dbId = await analysisModel.create({ repoName: repo });
       }
+      logger.info(`Analysis started`, { service: "worker", repo, jobId: job.id });
 
       emitJobUpdate(job.id, {
         status: "PROCESSING",
@@ -208,12 +210,13 @@ const analyzeWorker = new Worker(
           score_diff: scoreDiff
         }
       });
+      logger.info(`Analysis completed`, { service: "worker", repo, jobId: job.id, score: result.risk_score, level: result.risk_level });
       await job.updateProgress(100);
       publisher.del(`rate:repo:${repo}`).catch(() => {});
 
       return result;
     } catch (error) {
-      console.error("Worker analysis failed:", error.message);
+      logger.error(`Analysis failed`, { service: "worker", repo, jobId: job.id, error: error.message });
 
       // analysisModel.create 자체가 실패한 경우 dbId가 없을 수 있음
       if (dbId) {

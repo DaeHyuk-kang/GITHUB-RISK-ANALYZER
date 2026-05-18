@@ -6,6 +6,7 @@ const app = require("./app");
 const registerSocket = require("./sockets/socketHandler");
 const { createRedisClient } = require("./config/redis");
 const scheduleService = require("./services/scheduleService");
+const logger = require("./config/logger");
 
 const server = http.createServer(app);
 
@@ -20,9 +21,9 @@ const subscriber = createRedisClient();
 
 subscriber.subscribe("job-updates", (err, count) => {
   if (err) {
-    console.error("❌ Failed to subscribe to Redis updates:", err);
+    logger.error("Failed to subscribe to Redis updates", { error: err.message });
   } else {
-    console.log(`✅ Subscribed to job-updates channel (${count} subscribers)`);
+    logger.info(`Subscribed to job-updates channel`, { subscribers: count });
   }
 });
 
@@ -47,10 +48,10 @@ registerSocket(io);
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  logger.info(`Server running on port ${PORT}`);
   try {
     await scheduleService.restoreSchedules();
   } catch (err) {
-    console.error("❌ Failed to restore schedules on startup:", err.message);
+    logger.error("Failed to restore schedules on startup", { error: err.message });
   }
 });

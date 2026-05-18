@@ -3,6 +3,7 @@ const scheduleModel = require("../models/scheduleModel");
 const analysisModel = require("../models/analysisModel");
 const { parseRepo } = require("../utils/parseRepo");
 const cronParser = require("cron-parser");
+const logger = require("../config/logger");
 
 const DEFAULT_CRON = "0 0 * * *"; // 매일 자정
 
@@ -96,7 +97,7 @@ class ScheduleService {
             jobId: `schedule:${s.repo_name}`
           }
         );
-        console.log(`✅ Restored schedule for ${s.repo_name} (${s.cron_pattern})`);
+        logger.info(`Schedule restored`, { service: "schedule", repo: s.repo_name, cron: s.cron_pattern });
       }
     }
   }

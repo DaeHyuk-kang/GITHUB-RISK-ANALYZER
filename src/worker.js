@@ -1,7 +1,8 @@
 require("dotenv").config();
 const { analyzeWorker } = require("./workers/analyzeWorker");
+const logger = require("./config/logger");
 
-console.log("🚀 Analysis Worker process started and listening for jobs...");
+logger.info("Analysis Worker process started and listening for jobs", { service: "worker" });
 
 // Handle graceful shutdown
 process.on("SIGTERM", async () => {
