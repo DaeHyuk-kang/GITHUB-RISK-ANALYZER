@@ -1,0 +1,20 @@
+services:
+  server:
+    image: ${ECR_IMAGE}
+    ports:
+      - "3000:3000"
+    env_file: .env.prod
+    restart: unless-stopped
+    volumes:
+      - logs:/app/logs
+
+  worker:
+    image: ${ECR_IMAGE}
+    command: node src/worker.js
+    env_file: .env.prod
+    restart: unless-stopped
+    volumes:
+      - logs:/app/logs
+
+volumes:
+  logs:
