@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const userModel = require("../models/userModel");
+const { sendVerificationEmail } = require("./emailService");
 
 class AuthService {
   async register(email, password) {
@@ -10,14 +11,31 @@ class AuthService {
     const existing = await userModel.findByEmail(email);
     if (existing) throw new Error("Email already registered");
 
-    const userId = await userModel.create(email, password);
-    const token = this._sign(userId, email);
-    return { token, email };
+    const { verificationToken } = await userModel.create(email, password);
+    await sendVerificationEmail({ to: email, token: verificationToken });
+    return { message: "Registration successful. Please check your email to verify your account." };
+  }
+
+  async verifyEmail(token) {
+    if (!token) throw new Error("Verification token is required");
+    const user = await userModel.findByVerificationToken(token);
+    if (!user) throw new Error("Invalid or expired verification token");
+    await userModel.verifyEmail(user.id);
+    return { message: "이메일 인증이 완료됐습니다." };
+  }
+
+  async checkVerified(email) {
+    const user = await userModel.findByEmail(email);
+    if (!user || !user.email_verified) return { verified: false };
+    const token = this._sign(user.id, user.email);
+    return { verified: true, token, email: user.email };
   }
 
   async login(email, password) {
     const user = await userModel.findByEmail(email);
     if (!user) throw new Error("Invalid email or password");
+
+    if (!user.email_verified) throw new Error("Please verify your email before logging in");
 
     const valid = await userModel.verifyPassword(password, user.password_hash);
     if (!valid) throw new Error("Invalid email or password");

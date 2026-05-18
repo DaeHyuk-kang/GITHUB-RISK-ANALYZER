@@ -602,7 +602,9 @@
                     <label>Password <span style="color:var(--text-secondary); font-size:0.8rem;">(min 6 chars)</span></label>
                     <input type="password" id="regPassword" placeholder="••••••" />
                 </div>
-                <button class="btn-full" id="registerBtn"><i class="fas fa-user-plus"></i> Create Account</button>
+                <button class="btn-full" id="sendVerifyBtn"><i class="fas fa-envelope"></i> 인증 이메일 보내기</button>
+                <div id="verifyStatus" style="display:none; margin:8px 0; font-size:0.85rem; color:var(--text-secondary); text-align:center;"></div>
+                <button class="btn-full" id="registerBtn" disabled style="opacity:0.4; cursor:not-allowed;"><i class="fas fa-user-plus"></i> 회원가입 완료</button>
                 <div class="switch-link">Already have an account? <a id="toLogin">Login</a></div>
             </div>
         </div>
@@ -843,15 +845,14 @@
                         </div>
                     </div>
 
-                    <div class="dashboard-grid" style="margin-top: 20px;">
-                        <div class="card">
-                            <h3><i class="fas fa-chart-bar"></i> Score Breakdown — A</h3>
-                            <canvas id="compareChartA"></canvas>
-                        </div>
-                        <div class="card">
-                            <h3><i class="fas fa-chart-bar"></i> Score Breakdown — B</h3>
-                            <canvas id="compareChartB"></canvas>
-                        </div>
+                    <div class="card full-width" style="margin-top: 20px;">
+                        <h3><i class="fas fa-chart-radar"></i> Score Breakdown</h3>
+                        <canvas id="compareChartOverlay" style="max-height: 320px;"></canvas>
+                    </div>
+
+                    <div class="card full-width" style="margin-top: 16px;">
+                        <h3><i class="fas fa-table-list"></i> Metric Comparison</h3>
+                        <div id="compareMetricTable"></div>
                     </div>
                 </div>
             </div>
@@ -987,9 +988,12 @@
             if (e.key === "Enter") document.getElementById("loginBtn").click();
         });
 
-        document.getElementById("registerBtn").addEventListener("click", async () => {
+        let verifyPollInterval = null;
+
+        document.getElementById("sendVerifyBtn").addEventListener("click", async () => {
             const email = document.getElementById("regEmail").value.trim();
             const password = document.getElementById("regPassword").value;
+            if (!email || !password) { showAuthError("이메일과 비밀번호를 입력해주세요."); return; }
             try {
                 const res = await fetch("/api/auth/register", {
                     method: "POST",
@@ -998,13 +1002,40 @@
                 });
                 const data = await res.json();
                 if (!data.success) { showAuthError(data.message); return; }
-                setAuth(data.token, data.email);
-                loadRecentAnalyses();
-            } catch (e) { showAuthError("Registration failed"); }
+                const statusEl = document.getElementById("verifyStatus");
+                statusEl.style.display = "block";
+                statusEl.textContent = "📧 인증 이메일을 발송했습니다. 이메일을 확인해주세요.";
+                document.getElementById("sendVerifyBtn").textContent = "📧 재발송";
+                if (verifyPollInterval) clearInterval(verifyPollInterval);
+                verifyPollInterval = setInterval(async () => {
+                    try {
+                        const r = await fetch(`/api/auth/check-verified?email=${encodeURIComponent(email)}`);
+                        const d = await r.json();
+                        if (d.verified) {
+                            clearInterval(verifyPollInterval);
+                            statusEl.textContent = "✅ 이메일 인증 완료! 회원가입 완료 버튼을 클릭하세요.";
+                            statusEl.style.color = "#238636";
+                            const btn = document.getElementById("registerBtn");
+                            btn.disabled = false;
+                            btn.style.opacity = "1";
+                            btn.style.cursor = "pointer";
+                            btn._verifiedData = d;
+                        }
+                    } catch (_) {}
+                }, 3000);
+            } catch (e) { showAuthError("이메일 발송에 실패했습니다."); }
+        });
+
+        document.getElementById("registerBtn").addEventListener("click", async () => {
+            const data = document.getElementById("registerBtn")._verifiedData;
+            if (!data) return;
+            setAuth(data.token, data.email);
+            if (verifyPollInterval) clearInterval(verifyPollInterval);
+            loadRecentAnalyses();
         });
 
         document.getElementById("regPassword").addEventListener("keydown", e => {
-            if (e.key === "Enter") document.getElementById("registerBtn").click();
+            if (e.key === "Enter") document.getElementById("sendVerifyBtn").click();
         });
 
         document.getElementById("logoutBtn").addEventListener("click", () => {
@@ -1036,7 +1067,7 @@
         // ── Socket ─────────────────────────────────────────────────
         const socket = io();
         let scoreChart = null, statusChart = null, historyChart = null;
-        let compareChartA = null, compareChartB = null;
+        let compareChartOverlay = null;
         let pollingInterval = null;
         let currentJobId = null;
         let historyPoints = [];
@@ -1564,31 +1595,103 @@
             document.getElementById("compareWinnerA").classList.toggle("hidden", aScore <= bScore);
             document.getElementById("compareWinnerB").classList.toggle("hidden", bScore <= aScore);
 
-            // Charts
+            // Combined overlay radar chart
             Chart.defaults.color = "#8b949e";
             Chart.defaults.borderColor = "#30363d";
 
-            const radarOptions = score => ({
+            const aD = repoA.resultData?.detail_scores || {};
+            const bD = repoB.resultData?.detail_scores || {};
+
+            if (compareChartOverlay) compareChartOverlay.destroy();
+            compareChartOverlay = new Chart(document.getElementById("compareChartOverlay").getContext("2d"), {
                 type: "radar",
                 data: {
                     labels: ["Activity", "Contributor", "Issue", "PR"],
-                    datasets: [{
-                        label: "Scores",
-                        data: score ? [score.activity, score.contributor, score.issue, score.pr] : [0, 0, 0, 0],
-                        backgroundColor: "rgba(88,166,255,0.2)",
-                        borderColor: "rgba(88,166,255,1)",
-                        pointBackgroundColor: "rgba(88,166,255,1)",
-                        borderWidth: 2
-                    }]
+                    datasets: [
+                        {
+                            label: repoA.name,
+                            data: [aD.activity ?? 0, aD.contributor ?? 0, aD.issue ?? 0, aD.pr ?? 0],
+                            backgroundColor: "rgba(88,166,255,0.15)",
+                            borderColor: "#58a6ff",
+                            pointBackgroundColor: "#58a6ff",
+                            borderWidth: 2
+                        },
+                        {
+                            label: repoB.name,
+                            data: [bD.activity ?? 0, bD.contributor ?? 0, bD.issue ?? 0, bD.pr ?? 0],
+                            backgroundColor: "rgba(63,185,80,0.15)",
+                            borderColor: "#3fb950",
+                            pointBackgroundColor: "#3fb950",
+                            borderWidth: 2
+                        }
+                    ]
                 },
-                options: { scales: { r: { beginAtZero: true, max: 100, grid: { color: "#30363d" }, angleLines: { color: "#30363d" } } } }
+                options: {
+                    scales: {
+                        r: {
+                            beginAtZero: true, max: 100,
+                            grid: { color: "#30363d" },
+                            angleLines: { color: "#30363d" },
+                            pointLabels: { color: "#c9d1d9", font: { size: 13 } },
+                            ticks: { display: false }
+                        }
+                    },
+                    plugins: { legend: { labels: { color: "#c9d1d9" } } }
+                }
             });
 
-            if (compareChartA) compareChartA.destroy();
-            compareChartA = new Chart(document.getElementById("compareChartA").getContext("2d"), radarOptions(repoA.resultData?.detail_scores));
+            // Metric comparison table
+            const aR = repoA.resultData || {};
+            const bR = repoB.resultData || {};
 
-            if (compareChartB) compareChartB.destroy();
-            compareChartB = new Chart(document.getElementById("compareChartB").getContext("2d"), radarOptions(repoB.resultData?.detail_scores));
+            const sections = [
+                {
+                    title: "Score Breakdown",
+                    rows: [
+                        { label: "Activity Score",           a: aD.activity,              b: bD.activity,              better: "higher", fmt: v => v ?? "-" },
+                        { label: "Contributor Health Score", a: aD.contributor,           b: bD.contributor,           better: "higher", fmt: v => v ?? "-" },
+                        { label: "Issue Management Score",   a: aD.issue,                 b: bD.issue,                 better: "higher", fmt: v => v ?? "-" },
+                        { label: "PR Quality Score",         a: aD.pr,                    b: bD.pr,                    better: "higher", fmt: v => v ?? "-" },
+                    ]
+                },
+                {
+                    title: "Key Metrics",
+                    rows: [
+                        { label: "Recent Commits (30d)",     a: aR.recent_commit_count,   b: bR.recent_commit_count,   better: "higher", fmt: v => v ?? "-" },
+                        { label: "Contributors",             a: aR.contributor_count,     b: bR.contributor_count,     better: "higher", fmt: v => v ?? "-" },
+                        { label: "Top Contributor Ratio",    a: aR.top_contributor_ratio, b: bR.top_contributor_ratio, better: "lower",  fmt: v => v != null ? v + "%" : "-" },
+                        { label: "Open Issue Rate",          a: aR.open_issue_rate,       b: bR.open_issue_rate,       better: "lower",  fmt: v => v != null ? v + "%" : "-" },
+                        { label: "PR Merge Rate",            a: aR.pr_merge_rate,         b: bR.pr_merge_rate,         better: "higher", fmt: v => v != null ? v + "%" : "-" },
+                        { label: "⭐ Stars",                 a: aR.stars,                 b: bR.stars,                 better: "higher", fmt: v => v != null ? v.toLocaleString() : "-" },
+                    ]
+                }
+            ];
+
+            const th = `padding:10px 14px; border-bottom:1px solid #30363d; background:#0d1117; font-weight:500;`;
+            let html = `<table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+                <thead><tr>
+                    <th style="text-align:left;${th}color:var(--text-secondary);">Metric</th>
+                    <th style="text-align:center;${th}color:#58a6ff;">${repoA.name}</th>
+                    <th style="text-align:center;${th}color:#3fb950;">${repoB.name}</th>
+                </tr></thead><tbody>`;
+
+            for (const section of sections) {
+                html += `<tr><td colspan="3" style="padding:10px 14px 6px;font-size:0.76rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.07em;background:#0d1117;border-bottom:1px solid #21262d;">${section.title}</td></tr>`;
+                for (const row of section.rows) {
+                    const aWins = row.a != null && row.b != null && (row.better === "higher" ? row.a > row.b : row.a < row.b);
+                    const bWins = row.a != null && row.b != null && (row.better === "higher" ? row.b > row.a : row.b < row.a);
+                    const aStyle = aWins ? "font-weight:700;color:#58a6ff;" : "color:var(--text-secondary);";
+                    const bStyle = bWins ? "font-weight:700;color:#3fb950;" : "color:var(--text-secondary);";
+                    html += `<tr style="border-bottom:1px solid #21262d;">
+                        <td style="padding:10px 14px;color:var(--text-secondary);">${row.label}</td>
+                        <td style="text-align:center;padding:10px 14px;${aStyle}">${row.fmt(row.a)}${aWins ? " ▲" : ""}</td>
+                        <td style="text-align:center;padding:10px 14px;${bStyle}">${row.fmt(row.b)}${bWins ? " ▲" : ""}</td>
+                    </tr>`;
+                }
+            }
+
+            html += `</tbody></table>`;
+            document.getElementById("compareMetricTable").innerHTML = html;
         }
 
         // ── Bulk Analysis ──────────────────────────────────────────

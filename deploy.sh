@@ -17,7 +17,7 @@ echo "▶ ECR 리포지토리 생성 (이미 있으면 무시)..."
 aws ecr create-repository --repository-name $REPO_NAME --region $AWS_REGION 2>/dev/null || true
 
 echo "▶ Docker 이미지 빌드..."
-docker build -t $REPO_NAME .
+docker buildx build --platform linux/amd64 -t $REPO_NAME .
 
 echo "▶ ECR에 푸시..."
 docker tag ${REPO_NAME}:latest ${ECR_URI}:latest
