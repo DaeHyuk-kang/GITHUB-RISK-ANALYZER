@@ -1,0 +1,51 @@
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: kang0430!
+      MYSQL_DATABASE: github_risk_analyzer
+      MYSQL_USER: GRA-db
+      MYSQL_PASSWORD: kang0430!
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pkang0430!"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  server:
+    image: ${ECR_IMAGE}
+    ports:
+      - "3000:3000"
+    env_file: .env.prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - logs:/app/logs
+
+  worker:
+    image: ${ECR_IMAGE}
+    command: node src/worker.js
+    env_file: .env.prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - logs:/app/logs
+
+volumes:
+  logs:
+  db_data:

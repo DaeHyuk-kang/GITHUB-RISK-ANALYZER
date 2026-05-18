@@ -27,7 +27,7 @@ class AnalysisModel {
    */
   async getRecent() {
     const [rows] = await db.execute(
-      `SELECT a1.id, a1.repo_name as repo, a1.risk_score, a1.status, a1.created_at 
+      `SELECT a1.id, a1.repo_name as repo, a1.risk_score, a1.risk_level, a1.status, a1.created_at
        FROM analyses a1
        INNER JOIN (
            SELECT repo_name, MAX(created_at) as max_created_at
@@ -61,6 +61,30 @@ class AnalysisModel {
       [repoName]
     );
     return rows;
+  }
+
+  /**
+   * 특정 저장소의 분석 히스토리 조회 (최신순, 최대 20개)
+   */
+  async getHistoryByRepo(repoName, limit = 20) {
+    const [rows] = await db.execute(
+      `SELECT id, risk_score, risk_level, created_at, result_data
+       FROM analyses
+       WHERE repo_name = ? AND status = 'COMPLETED'
+       ORDER BY created_at ASC
+       LIMIT ?`,
+      [repoName, limit]
+    );
+    return rows.map(r => {
+      const rd = typeof r.result_data === "string" ? JSON.parse(r.result_data) : r.result_data;
+      return {
+        id: r.id,
+        risk_score: r.risk_score,
+        risk_level: r.risk_level,
+        created_at: r.created_at,
+        detail_scores: rd?.detail_scores || null
+      };
+    });
   }
 
   /**

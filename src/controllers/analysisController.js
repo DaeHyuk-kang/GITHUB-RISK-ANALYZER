@@ -102,18 +102,20 @@ class AnalysisController {
   }
 
   /**
-   * 재분석 요청
-   * POST /api/analyze/re
+   * 특정 저장소의 분석 히스토리 조회
+   * GET /api/analyses/repo/:owner/:repo/history
    */
-  async reanalyze(req, res) {
+  async getRepoHistory(req, res) {
     try {
-      const { repo } = req.body;
-      const result = await analysisService.reanalyze(repo);
-      return res.status(202).json({ success: true, ...result });
+      const { owner, repo } = req.params;
+      const repoName = `${owner}/${repo}`;
+      const history = await analysisService.getRepoHistory(repoName);
+      return res.json({ success: true, count: history.length, data: history });
     } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
+      return res.status(500).json({ success: false, message: error.message });
     }
   }
+
 }
 
 module.exports = new AnalysisController();

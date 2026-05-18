@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env.prod
 .DS_Store
 
 # Claude Code internals
@@ -9,3 +10,4 @@ node_modules/
 explain.txt
 gemini_history.txt
 proposal.md
+logs/

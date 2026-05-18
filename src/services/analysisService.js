@@ -1,14 +1,13 @@
 const analysisModel = require("../models/analysisModel");
 const analyzeQueue = require("../queues/analyzeQueue");
+const { parseRepo } = require("../utils/parseRepo");
 
 class AnalysisService {
   /**
    * 단일 저장소 분석 요청 (DB 저장 및 큐 추가)
    */
   async requestAnalysis(repoName) {
-    if (!repoName || !repoName.includes("/")) {
-      throw new Error("Invalid repo format (owner/repo)");
-    }
+    repoName = parseRepo(repoName);
 
     // 1. DB에 기록 (PENDING)
     const dbId = await analysisModel.create({ repoName });
@@ -22,12 +21,16 @@ class AnalysisService {
     return { jobId: job.id, dbId, status: "PENDING" };
   }
   async compareRepos(repoA, repoB) {
+    repoA = parseRepo(repoA);
+    repoB = parseRepo(repoB);
     const resultA = await analysisModel.getLatestByRepo(repoA);
     const resultB = await analysisModel.getLatestByRepo(repoB);
 
     if (!resultA || !resultB) {
       throw new Error("One or both repos have no analysis data");
     }
+
+    const parse = d => (typeof d === "string" ? JSON.parse(d) : d);
 
     return {
       repoA: {
@@ -36,7 +39,7 @@ class AnalysisService {
         level: resultA.risk_level,
         status: resultA.status,
         createdAt: resultA.created_at,
-        resultData: resultA.result_data
+        resultData: parse(resultA.result_data)
       },
       repoB: {
         name: repoB,
@@ -44,7 +47,7 @@ class AnalysisService {
         level: resultB.risk_level,
         status: resultB.status,
         createdAt: resultB.created_at,
-        resultData: resultB.result_data
+        resultData: parse(resultB.result_data)
       }
     };
   }
@@ -77,23 +80,49 @@ class AnalysisService {
       throw new Error("Job not found");
     }
 
-    const state = await job.getState(); // completed, failed, active, waiting, delayed
+    const state = await job.getState();
     const { dbId, repo } = job.data;
+    const dbRecord = dbId ? await analysisModel.getById(dbId) : null;
 
     let result = null;
-    if (state === "completed") {
-      result = job.returnvalue;
+    if (state === "completed" && dbRecord) {
+      let resultData = dbRecord.result_data;
+      if (typeof resultData === "string") resultData = JSON.parse(resultData);
+
+      // 이전 분석과의 비교: dbId 기준으로 직접 특정하여 동시 분석 시 데이터 혼용 방지
+      const twoLatest = await analysisModel.getTwoLatestByRepo(repo);
+      const previous = twoLatest[0]?.id === dbRecord.id ? (twoLatest[1] || null) : null;
+
+      let prevResultData = null;
+      if (previous?.result_data) {
+        prevResultData = typeof previous.result_data === "string"
+          ? JSON.parse(previous.result_data)
+          : previous.result_data;
+      }
+
+      result = {
+        ...(resultData || {}),
+        risk_score: dbRecord.risk_score,
+        risk_level: dbRecord.risk_level,
+        previous_score: previous ? previous.risk_score : null,
+        previous_risk_level: previous ? previous.risk_level : null,
+        previous_detail_scores: prevResultData?.detail_scores || null,
+        score_diff: previous ? (dbRecord.risk_score - previous.risk_score) : 0
+      };
     }
 
-    // DB에서 최신 정보 확인 (변화량 계산 포함)
-    const dbRecord = await analysisModel.getById(dbId);
+    if (!result) {
+      result = job.returnvalue || (dbRecord ? dbRecord.result_data : null);
+    }
+
+    const STATUS_MAP = { active: "PROCESSING", waiting: "PENDING", completed: "COMPLETED", failed: "FAILED", delayed: "PENDING" };
 
     return {
       success: true,
       jobId,
-      status: state.toUpperCase(),
+      status: STATUS_MAP[state] || state.toUpperCase(),
       progress: job.progress,
-      result: result || (dbRecord ? dbRecord.result_data : null),
+      result,
       dbStatus: dbRecord ? dbRecord.status : null
     };
   }
@@ -126,24 +155,33 @@ class AnalysisService {
     const current = results[0];
     const previous = results[1] || null;
 
-    // JSON 필드 파싱
     if (current.result_data && typeof current.result_data === 'string') {
       current.result_data = JSON.parse(current.result_data);
+    }
+
+    let previousResultData = null;
+    if (previous?.result_data) {
+      previousResultData = typeof previous.result_data === 'string'
+        ? JSON.parse(previous.result_data)
+        : previous.result_data;
     }
 
     return {
       ...current,
       previous_score: previous ? previous.risk_score : null,
+      previous_risk_level: previous ? previous.risk_level : null,
+      previous_detail_scores: previousResultData?.detail_scores || null,
       score_diff: previous ? (current.risk_score - previous.risk_score) : 0
     };
   }
 
   /**
-   * 재분석 API (기존 데이터를 무시하고 새 작업 생성)
+   * 특정 저장소의 분석 히스토리 조회
    */
-  async reanalyze(repoName) {
-    return await this.requestAnalysis(repoName);
+  async getRepoHistory(repoName) {
+    return await analysisModel.getHistoryByRepo(repoName);
   }
+
 }
 
 module.exports = new AnalysisService();
