@@ -76,9 +76,13 @@ class AnalysisService {
   /**
    * 작업 상태 및 결과 조회 (Polling용)
    */
-  async getJobStatus(jobId) {
+  async getJobStatus(jobId, userId) {
     const job = await analyzeQueue.getJob(jobId);
     if (!job) {
+      throw new Error("Job not found");
+    }
+
+    if (userId && job.data.userId && job.data.userId !== userId) {
       throw new Error("Job not found");
     }
 

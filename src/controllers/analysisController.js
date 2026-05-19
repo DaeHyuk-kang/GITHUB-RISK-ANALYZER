@@ -61,7 +61,7 @@ class AnalysisController {
   async getJobStatus(req, res) {
     try {
       const { id } = req.params;
-      const status = await analysisService.getJobStatus(id);
+      const status = await analysisService.getJobStatus(id, req.user.userId);
       return res.json(status);
     } catch (error) {
       return res.status(404).json({ success: false, message: error.message });
