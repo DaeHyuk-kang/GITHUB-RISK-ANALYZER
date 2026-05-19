@@ -945,17 +945,21 @@
 
         function getToken() { return localStorage.getItem("gra_token"); }
         function getEmail() { return localStorage.getItem("gra_email"); }
+        function getUserId() { return localStorage.getItem("gra_user_id"); }
 
-        function setAuth(token, email) {
+        function setAuth(token, email, userId) {
             localStorage.setItem("gra_token", token);
             localStorage.setItem("gra_email", email);
+            if (userId) localStorage.setItem("gra_user_id", String(userId));
             authModal.style.display = "none";
             document.getElementById("userEmail").textContent = email;
+            if (userId) socket.emit("join-user", userId);
         }
 
         function clearAuth() {
             localStorage.removeItem("gra_token");
             localStorage.removeItem("gra_email");
+            localStorage.removeItem("gra_user_id");
             if (verifyPollInterval) { clearInterval(verifyPollInterval); verifyPollInterval = null; }
             registerForm.style.display = "none";
             loginForm.style.display = "block";
@@ -1013,7 +1017,7 @@
                 });
                 const data = await res.json();
                 if (!data.success) { showAuthError(data.message); return; }
-                setAuth(data.token, data.email);
+                setAuth(data.token, data.email, data.userId);
                 loadRecentAnalyses();
             } catch (e) { showAuthError("Login failed"); }
         });
@@ -1071,7 +1075,7 @@
                 const data = await res.json();
                 if (!data.success) { showAuthError(data.message); return; }
                 if (verifyPollInterval) clearInterval(verifyPollInterval);
-                setAuth(data.token, data.email);
+                setAuth(data.token, data.email, data.userId);
                 loadRecentAnalyses();
             } catch (e) { showAuthError("로그인에 실패했습니다."); }
         });
@@ -1108,6 +1112,10 @@
 
         // ── Socket ─────────────────────────────────────────────────
         const socket = io();
+        socket.on("connect", () => {
+            const uid = getUserId();
+            if (uid) socket.emit("join-user", uid);
+        });
         let scoreChart = null, statusChart = null, historyChart = null;
         let compareChartOverlay = null;
         let pollingInterval = null;

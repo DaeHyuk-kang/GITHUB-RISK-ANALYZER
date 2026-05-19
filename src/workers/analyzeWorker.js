@@ -202,6 +202,7 @@ const analyzeWorker = new Worker(
         status: "DONE",
         progress: 100,
         step: "analysis completed",
+        userId,
         result: {
           ...result,
           previous_score: previous ? previous.risk_score : null,
@@ -232,6 +233,7 @@ const analyzeWorker = new Worker(
         status: "FAILED",
         progress: 100,
         step: "analysis failed",
+        userId,
         error: error.message
       });
       publisher.del(`rate:repo:${repo}`).catch(() => {});

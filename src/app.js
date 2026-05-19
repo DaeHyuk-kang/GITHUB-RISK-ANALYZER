@@ -5,6 +5,7 @@ const webhookRoutes = require("./routes/webhookRoutes");
 const scheduleRoutes = require("./routes/scheduleRoutes");
 const authRoutes = require("./routes/authRoutes");
 const alertRoutes = require("./routes/alertRoutes");
+const logger = require("./config/logger");
 
 const app = express();
 
@@ -26,7 +27,7 @@ app.use("/api/alerts", alertRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
+  logger.error("Unhandled error", { error: err.message, stack: err.stack });
   res.status(500).json({ success: false, message: "Internal Server Error" });
 });
 

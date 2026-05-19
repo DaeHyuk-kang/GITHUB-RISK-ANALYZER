@@ -47,7 +47,7 @@ class AuthService {
     if (!valid) throw new Error("Invalid email or password");
 
     const token = this._sign(user.id, user.email);
-    return { token, email: user.email };
+    return { token, email: user.email, userId: user.id };
   }
 
   _sign(userId, email) {
