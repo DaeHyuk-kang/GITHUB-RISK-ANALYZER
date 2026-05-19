@@ -6,16 +6,15 @@ class AnalysisService {
   /**
    * 단일 저장소 분석 요청 (DB 저장 및 큐 추가)
    */
-  async requestAnalysis(repoName) {
+  async requestAnalysis(repoName, userId = 0) {
     repoName = parseRepo(repoName);
 
-    // 1. DB에 기록 (PENDING)
-    const dbId = await analysisModel.create({ repoName });
+    const dbId = await analysisModel.create({ repoName, userId });
 
-    // 2. BullMQ에 작업 추가
     const job = await analyzeQueue.add("analyze", {
       repo: repoName,
-      dbId // DB 식별자를 전달하여 워커가 나중에 업데이트할 수 있게 함
+      dbId,
+      userId
     });
 
     return { jobId: job.id, dbId, status: "PENDING" };
@@ -67,8 +66,8 @@ class AnalysisService {
   /**
    * 최근 분석 리스트 조회 (최대 10개)
    */
-  async getRecentAnalyses() {
-    return await analysisModel.getRecent();
+  async getRecentAnalyses(userId = 0) {
+    return await analysisModel.getRecent(userId);
   }
 
   /**

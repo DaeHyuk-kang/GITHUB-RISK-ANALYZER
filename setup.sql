@@ -12,12 +12,14 @@ USE github_risk_analyzer;
 
 CREATE TABLE IF NOT EXISTS analyses (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL DEFAULT 0,
   repo_name VARCHAR(255) NOT NULL,
   status VARCHAR(50) DEFAULT 'PENDING',
   risk_score INT,
   risk_level VARCHAR(50),
   result_data JSON,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_analyses_user_id (user_id)
 );
 
 CREATE TABLE IF NOT EXISTS scheduled_repos (
