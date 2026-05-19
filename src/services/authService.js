@@ -27,8 +27,7 @@ class AuthService {
   async checkVerified(email) {
     const user = await userModel.findByEmail(email);
     if (!user || !user.email_verified) return { verified: false };
-    const token = this._sign(user.id, user.email);
-    return { verified: true, token, email: user.email };
+    return { verified: true };
   }
 
   async login(email, password) {

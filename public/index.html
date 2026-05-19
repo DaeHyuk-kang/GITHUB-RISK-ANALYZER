@@ -1049,7 +1049,6 @@
                             btn.disabled = false;
                             btn.style.opacity = "1";
                             btn.style.cursor = "pointer";
-                            btn._verifiedData = d;
                         }
                     } catch (_) {}
                 }, 3000);
@@ -1057,11 +1056,20 @@
         });
 
         document.getElementById("registerBtn").addEventListener("click", async () => {
-            const data = document.getElementById("registerBtn")._verifiedData;
-            if (!data) return;
-            setAuth(data.token, data.email);
-            if (verifyPollInterval) clearInterval(verifyPollInterval);
-            loadRecentAnalyses();
+            const email = document.getElementById("regEmail").value.trim();
+            const password = document.getElementById("regPassword").value;
+            try {
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (!data.success) { showAuthError(data.message); return; }
+                if (verifyPollInterval) clearInterval(verifyPollInterval);
+                setAuth(data.token, data.email);
+                loadRecentAnalyses();
+            } catch (e) { showAuthError("로그인에 실패했습니다."); }
         });
 
         document.getElementById("regPassword").addEventListener("keydown", e => {
