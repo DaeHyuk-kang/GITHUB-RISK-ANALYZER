@@ -22,9 +22,12 @@ CREATE TABLE IF NOT EXISTS analyses (
 
 CREATE TABLE IF NOT EXISTS scheduled_repos (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  repo_name VARCHAR(255) NOT NULL UNIQUE,
+  user_id INT NOT NULL DEFAULT 0,
+  repo_name VARCHAR(255) NOT NULL,
   cron_pattern VARCHAR(100) NOT NULL DEFAULT '0 0 * * *',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_user_repo (user_id, repo_name),
+  INDEX idx_user_id (user_id)
 );
 
 CREATE TABLE IF NOT EXISTS users (

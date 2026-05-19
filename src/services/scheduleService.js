@@ -18,54 +18,52 @@ function isValidCron(pattern) {
 }
 
 class ScheduleService {
-  async addSchedule(repoName, cronPattern = DEFAULT_CRON) {
+  async addSchedule(userId, repoName, cronPattern = DEFAULT_CRON) {
     repoName = parseRepo(repoName);
 
     if (!isValidCron(cronPattern)) {
       throw new Error(`Invalid cron pattern: "${cronPattern}". Expected 5 fields (e.g. "0 9 * * 1")`);
     }
 
-    // 기존 BullMQ 반복 작업이 있으면 제거 후 재등록 (크론 변경 대응)
+    const jobId = `schedule:${userId}:${repoName}`;
     const existing = await analyzeQueue.getRepeatableJobs();
-    const old = existing.find(j => j.id === `schedule:${repoName}`);
+    const old = existing.find(j => j.id === jobId);
     if (old) await analyzeQueue.removeRepeatableByKey(old.key);
 
-    await scheduleModel.upsert(repoName, cronPattern);
+    await scheduleModel.upsert(userId, repoName, cronPattern);
 
     await analyzeQueue.add(
       "analyze",
       { repo: repoName },
       {
         repeat: { pattern: cronPattern },
-        jobId: `schedule:${repoName}`
+        jobId
       }
     );
 
     return { repoName, cronPattern };
   }
 
-  async removeSchedule(repoName) {
-    const schedule = await scheduleModel.getByRepo(repoName);
+  async removeSchedule(userId, repoName) {
+    const schedule = await scheduleModel.getByRepo(userId, repoName);
     if (!schedule) throw new Error("Schedule not found");
 
-    // BullMQ에서 반복 작업 제거
+    const jobId = `schedule:${userId}:${repoName}`;
     const repeatableJobs = await analyzeQueue.getRepeatableJobs();
-    const job = repeatableJobs.find(j => j.id === `schedule:${repoName}`);
-    if (job) {
-      await analyzeQueue.removeRepeatableByKey(job.key);
-    }
+    const job = repeatableJobs.find(j => j.id === jobId);
+    if (job) await analyzeQueue.removeRepeatableByKey(job.key);
 
-    await scheduleModel.delete(repoName);
+    await scheduleModel.delete(userId, repoName);
     return { repoName };
   }
 
-  async listSchedules() {
-    const schedules = await scheduleModel.getAll();
+  async listSchedules(userId) {
+    const schedules = await scheduleModel.getAll(userId);
     const repeatableJobs = await analyzeQueue.getRepeatableJobs();
     const jobMap = new Map(repeatableJobs.map(j => [j.id, j]));
 
     return Promise.all(schedules.map(async s => {
-      const bullJob = jobMap.get(`schedule:${s.repo_name}`);
+      const bullJob = jobMap.get(`schedule:${userId}:${s.repo_name}`);
       const last = await analysisModel.getLatestByRepo(s.repo_name);
       return {
         repoName: s.repo_name,
@@ -81,20 +79,21 @@ class ScheduleService {
 
   // 서버 재시작 시 DB 스케줄을 BullMQ에 복원
   async restoreSchedules() {
-    const schedules = await scheduleModel.getAll();
+    const schedules = await scheduleModel.getAllForRestore();
     if (schedules.length === 0) return;
 
     const existing = await analyzeQueue.getRepeatableJobs();
     const existingIds = new Set(existing.map(j => j.id));
 
     for (const s of schedules) {
-      if (!existingIds.has(`schedule:${s.repo_name}`)) {
+      const jobId = `schedule:${s.user_id}:${s.repo_name}`;
+      if (!existingIds.has(jobId)) {
         await analyzeQueue.add(
           "analyze",
           { repo: s.repo_name },
           {
             repeat: { pattern: s.cron_pattern },
-            jobId: `schedule:${s.repo_name}`
+            jobId
           }
         );
         logger.info(`Schedule restored`, { service: "schedule", repo: s.repo_name, cron: s.cron_pattern });
