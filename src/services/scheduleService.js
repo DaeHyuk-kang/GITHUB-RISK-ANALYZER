@@ -25,20 +25,14 @@ class ScheduleService {
       throw new Error(`Invalid cron pattern: "${cronPattern}". Expected 5 fields (e.g. "0 9 * * 1")`);
     }
 
-    const jobId = `schedule:${userId}:${repoName}`;
-    const existing = await analyzeQueue.getRepeatableJobs();
-    const old = existing.find(j => j.id === jobId);
-    if (old) await analyzeQueue.removeRepeatableByKey(old.key);
+    const schedulerId = `schedule:${userId}:${repoName}`;
 
     await scheduleModel.upsert(userId, repoName, cronPattern);
 
-    await analyzeQueue.add(
-      "analyze",
-      { repo: repoName },
-      {
-        repeat: { pattern: cronPattern },
-        jobId
-      }
+    await analyzeQueue.upsertJobScheduler(
+      schedulerId,
+      { pattern: cronPattern, tz: "Asia/Seoul" },
+      { name: "analyze", data: { repo: repoName, userId } }
     );
 
     return { repoName, cronPattern };
@@ -48,10 +42,8 @@ class ScheduleService {
     const schedule = await scheduleModel.getByRepo(userId, repoName);
     if (!schedule) throw new Error("Schedule not found");
 
-    const jobId = `schedule:${userId}:${repoName}`;
-    const repeatableJobs = await analyzeQueue.getRepeatableJobs();
-    const job = repeatableJobs.find(j => j.id === jobId);
-    if (job) await analyzeQueue.removeRepeatableByKey(job.key);
+    const schedulerId = `schedule:${userId}:${repoName}`;
+    await analyzeQueue.removeJobScheduler(schedulerId);
 
     await scheduleModel.delete(userId, repoName);
     return { repoName };
@@ -59,16 +51,17 @@ class ScheduleService {
 
   async listSchedules(userId) {
     const schedules = await scheduleModel.getAll(userId);
-    const repeatableJobs = await analyzeQueue.getRepeatableJobs();
-    const jobMap = new Map(repeatableJobs.map(j => [j.id, j]));
+    const schedulers = await analyzeQueue.getJobSchedulers();
+    const schedulerMap = new Map(schedulers.map(s => [s.key, s]));
 
     return Promise.all(schedules.map(async s => {
-      const bullJob = jobMap.get(`schedule:${userId}:${s.repo_name}`);
+      const schedulerId = `schedule:${userId}:${s.repo_name}`;
+      const scheduler = schedulerMap.get(schedulerId);
       const last = await analysisModel.getLatestByRepo(s.repo_name);
       return {
         repoName: s.repo_name,
         cronPattern: s.cron_pattern,
-        nextRun: bullJob?.next ? new Date(bullJob.next).toISOString() : null,
+        nextRun: scheduler?.next ? new Date(scheduler.next).toISOString() : null,
         createdAt: s.created_at,
         lastScore: last?.risk_score ?? null,
         lastLevel: last?.risk_level ?? null,
@@ -82,22 +75,14 @@ class ScheduleService {
     const schedules = await scheduleModel.getAllForRestore();
     if (schedules.length === 0) return;
 
-    const existing = await analyzeQueue.getRepeatableJobs();
-    const existingIds = new Set(existing.map(j => j.id));
-
     for (const s of schedules) {
-      const jobId = `schedule:${s.user_id}:${s.repo_name}`;
-      if (!existingIds.has(jobId)) {
-        await analyzeQueue.add(
-          "analyze",
-          { repo: s.repo_name },
-          {
-            repeat: { pattern: s.cron_pattern },
-            jobId
-          }
-        );
-        logger.info(`Schedule restored`, { service: "schedule", repo: s.repo_name, cron: s.cron_pattern });
-      }
+      const schedulerId = `schedule:${s.user_id}:${s.repo_name}`;
+      await analyzeQueue.upsertJobScheduler(
+        schedulerId,
+        { pattern: s.cron_pattern, tz: "Asia/Seoul" },
+        { name: "analyze", data: { repo: s.repo_name, userId: s.user_id } }
+      );
+      logger.info(`Schedule restored`, { service: "schedule", repo: s.repo_name, cron: s.cron_pattern });
     }
   }
 }

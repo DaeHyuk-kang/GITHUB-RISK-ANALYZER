@@ -5,16 +5,14 @@ const authMiddleware = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.use(authMiddleware);
+router.post("/analyze", authMiddleware, rateLimit, (req, res) => analysisController.createJob(req, res));
+router.post("/analyze/bulk", authMiddleware, rateLimit, (req, res) => analysisController.createBulkJobs(req, res));
+router.get("/jobs/:id", authMiddleware, (req, res) => analysisController.getJobStatus(req, res));
+router.post("/jobs/:id/retry", authMiddleware, (req, res) => analysisController.retryJob(req, res));
 
-router.post("/analyze", rateLimit, (req, res) => analysisController.createJob(req, res));
-router.post("/analyze/bulk", rateLimit, (req, res) => analysisController.createBulkJobs(req, res));
-router.get("/jobs/:id", (req, res) => analysisController.getJobStatus(req, res));
-router.post("/jobs/:id/retry", (req, res) => analysisController.retryJob(req, res));
-
-router.get("/analyses/recent", (req, res) => analysisController.getRecent(req, res));
-router.get("/analyses/repo/:owner/:repo/history", (req, res) => analysisController.getRepoHistory(req, res));
-router.get("/analyses/repo/:owner/:repo", (req, res) => analysisController.getRepoResult(req, res));
-router.post("/analyses/compare", (req, res) => analysisController.compare(req, res));
+router.get("/analyses/recent", authMiddleware, (req, res) => analysisController.getRecent(req, res));
+router.get("/analyses/repo/:owner/:repo/history", authMiddleware, (req, res) => analysisController.getRepoHistory(req, res));
+router.get("/analyses/repo/:owner/:repo", authMiddleware, (req, res) => analysisController.getRepoResult(req, res));
+router.post("/analyses/compare", authMiddleware, (req, res) => analysisController.compare(req, res));
 
 module.exports = router;

@@ -15,6 +15,9 @@ class AnalysisService {
       repo: repoName,
       dbId,
       userId
+    }, {
+      removeOnComplete: 100,
+      removeOnFail: 100
     });
 
     return { jobId: job.id, dbId, status: "PENDING" };
@@ -53,12 +56,12 @@ class AnalysisService {
   /**
    * 대량 분석 요청
    */
-  async requestBulkAnalysis(repos) {
+  async requestBulkAnalysis(repos, userId = 0) {
     if (!Array.isArray(repos) || repos.length === 0 || repos.length > 10) {
       throw new Error("repos must be an array of 1 to 10 items");
     }
     const results = await Promise.all(
-      repos.map(repo => this.requestAnalysis(repo))
+      repos.map(repo => this.requestAnalysis(repo, userId))
     );
     return results;
   }

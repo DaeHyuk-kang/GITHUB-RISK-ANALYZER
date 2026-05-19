@@ -956,6 +956,10 @@
         function clearAuth() {
             localStorage.removeItem("gra_token");
             localStorage.removeItem("gra_email");
+            if (verifyPollInterval) { clearInterval(verifyPollInterval); verifyPollInterval = null; }
+            registerForm.style.display = "none";
+            loginForm.style.display = "block";
+            authError.style.display = "none";
             authModal.style.display = "flex";
         }
 
@@ -1139,7 +1143,8 @@
 
         async function loadRecentAnalyses() {
             try {
-                const res = await fetch("/api/analyses/recent");
+                const res = await authFetch("/api/analyses/recent");
+                if (!res) return;
                 const result = await res.json();
                 if (!result.success) return;
 
@@ -1189,7 +1194,12 @@
 
             try {
                 const [owner, repo] = repoName.split("/");
-                const res = await fetch(`/api/analyses/repo/${owner}/${repo}`);
+                const res = await authFetch(`/api/analyses/repo/${owner}/${repo}`);
+                if (!res) {
+                    progressBox.classList.add("hidden");
+                    initialMessage.classList.remove("hidden");
+                    return;
+                }
                 const json = await res.json();
                 if (json.success && json.data) {
                     displayResult(flattenApiResult(json.data));
@@ -1220,11 +1230,15 @@
             progressStep.innerHTML = `<i class="fas fa-circle-notch spinner"></i> Starting analysis...`;
 
             try {
-                const res = await fetch("/api/analyze", {
+                const res = await authFetch("/api/analyze", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repo })
                 });
+                if (!res) {
+                    progressBox.classList.add("hidden");
+                    initialMessage.classList.remove("hidden");
+                    return;
+                }
                 const data = await res.json();
 
                 if (!res.ok) {
@@ -1241,7 +1255,8 @@
                 if (pollingInterval) clearInterval(pollingInterval);
                 pollingInterval = setInterval(async () => {
                     try {
-                        const sr = await fetch(`/api/jobs/${currentJobId}`);
+                        const sr = await authFetch(`/api/jobs/${currentJobId}`);
+                        if (!sr) { clearInterval(pollingInterval); pollingInterval = null; return; }
                         const sd = await sr.json();
                         if (sd.status === "COMPLETED" || sd.status === "DONE") {
                             clearInterval(pollingInterval); pollingInterval = null;
@@ -1295,7 +1310,8 @@
                 </button>`;
             document.getElementById("retryJobBtn").addEventListener("click", async () => {
                 try {
-                    await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+                    const retryRes = await authFetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+                    if (!retryRes) return;
                     progressBar.style.background = "";
                     progressBar.style.width = "0%";
                     progressPercent.textContent = "0%";
@@ -1304,7 +1320,8 @@
                     if (pollingInterval) clearInterval(pollingInterval);
                     pollingInterval = setInterval(async () => {
                         try {
-                            const sr = await fetch(`/api/jobs/${jobId}`);
+                            const sr = await authFetch(`/api/jobs/${jobId}`);
+                            if (!sr) { clearInterval(pollingInterval); pollingInterval = null; return; }
                             const sd = await sr.json();
                             if (sd.status === "COMPLETED" || sd.status === "DONE") {
                                 clearInterval(pollingInterval); pollingInterval = null;
@@ -1429,7 +1446,8 @@
             const card = document.getElementById("historyCard");
             try {
                 const [owner, repo] = repoName.split("/");
-                const res = await fetch(`/api/analyses/repo/${owner}/${repo}/history`);
+                const res = await authFetch(`/api/analyses/repo/${owner}/${repo}/history`);
+                if (!res) { card.style.display = "none"; return; }
                 const data = await res.json();
 
                 if (!data.success || data.data.length < 2) {
@@ -1591,11 +1609,11 @@
             if (!repoA || !repoB) { alert("Please enter both repositories"); return; }
 
             try {
-                const res = await fetch("/api/analyses/compare", {
+                const res = await authFetch("/api/analyses/compare", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repoA, repoB })
                 });
+                if (!res) return;
                 const data = await res.json();
                 if (!data.success) { alert(data.message); return; }
                 renderCompare(data.data);
@@ -1756,11 +1774,11 @@
                 </div>`).join("");
 
             try {
-                const res = await fetch("/api/analyze/bulk", {
+                const res = await authFetch("/api/analyze/bulk", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repos: lines })
                 });
+                if (!res) return;
                 const data = await res.json();
                 if (!data.success) { alert(data.message); return; }
 
@@ -1774,7 +1792,8 @@
 
                     const iv = setInterval(async () => {
                         try {
-                            const sr = await fetch(`/api/jobs/${job.jobId}`);
+                            const sr = await authFetch(`/api/jobs/${job.jobId}`);
+                            if (!sr) { clearInterval(iv); return; }
                             const sd = await sr.json();
                             if (sd.status === "COMPLETED" || sd.status === "DONE") {
                                 clearInterval(iv);

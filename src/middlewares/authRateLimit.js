@@ -1,4 +1,5 @@
 const redis = require("../config/redis");
+const logger = require("../config/logger");
 
 async function authRateLimit(req, res, next) {
   try {
@@ -15,7 +16,7 @@ async function authRateLimit(req, res, next) {
 
     next();
   } catch (err) {
-    console.error("Auth rate limit error:", err);
+    logger.error("Auth rate limit error", { error: err.message });
     return res.status(503).json({ success: false, message: "Service temporarily unavailable" });
   }
 }

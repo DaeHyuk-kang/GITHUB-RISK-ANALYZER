@@ -34,10 +34,12 @@ class AnalysisModel {
            FROM analyses
            WHERE status = 'COMPLETED' AND user_id = ?
            GROUP BY repo_name
-       ) a2 ON a1.repo_name = a2.repo_name AND a1.created_at = a2.max_created_at
+       ) a2 ON a1.repo_name = a2.repo_name
+              AND a1.created_at = a2.max_created_at
+              AND a1.user_id = ?
        ORDER BY a1.created_at DESC
        LIMIT 10`,
-      [userId]
+      [userId, userId]
     );
     return rows;
   }

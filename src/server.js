@@ -38,7 +38,7 @@ subscriber.on("message", (channel, message) => {
         io.emit("analysis:complete", { jobId: payload.jobId, status: payload.status });
       }
     } catch (err) {
-      console.error("Failed to parse job-updates message:", err.message);
+      logger.error("Failed to parse job-updates message", { error: err.message });
     }
   }
 });

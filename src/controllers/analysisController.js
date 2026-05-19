@@ -8,7 +8,7 @@ class AnalysisController {
   async createJob(req, res) {
     try {
       const { repo } = req.body;
-      const result = await analysisService.requestAnalysis(repo, req.user?.userId);
+      const result = await analysisService.requestAnalysis(repo, req.user.userId);
       return res.status(202).json({ success: true, ...result });
     } catch (error) {
       return res.status(400).json({ success: false, message: error.message });
@@ -34,7 +34,7 @@ class AnalysisController {
   async createBulkJobs(req, res) {
     try {
       const { repos } = req.body;
-      const jobs = await analysisService.requestBulkAnalysis(repos);
+      const jobs = await analysisService.requestBulkAnalysis(repos, req.user.userId);
       return res.status(202).json({ success: true, jobs });
     } catch (error) {
       return res.status(400).json({ success: false, message: error.message });
@@ -47,7 +47,7 @@ class AnalysisController {
    */
   async getRecent(req, res) {
     try {
-      const list = await analysisService.getRecentAnalyses(req.user?.userId);
+      const list = await analysisService.getRecentAnalyses(req.user.userId);
       return res.json({ success: true, count: list.length, data: list });
     } catch (error) {
       return res.status(500).json({ success: false, message: error.message });
