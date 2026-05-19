@@ -9,7 +9,13 @@ class AuthService {
     if (password.length < 6) throw new Error("Password must be at least 6 characters");
 
     const existing = await userModel.findByEmail(email);
-    if (existing) throw new Error("Email already registered");
+    if (existing && existing.email_verified) throw new Error("Email already registered");
+
+    // 미인증 계정이면 인증 이메일 재발송
+    if (existing && !existing.email_verified) {
+      await sendVerificationEmail({ to: email, token: existing.verification_token });
+      return { message: "인증 이메일을 재발송했습니다. 이메일을 확인해주세요." };
+    }
 
     const { verificationToken } = await userModel.create(email, password);
     await sendVerificationEmail({ to: email, token: verificationToken });
