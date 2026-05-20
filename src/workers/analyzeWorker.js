@@ -29,14 +29,14 @@ function emitJobUpdate(jobId, payload) {
 const analyzeWorker = new Worker(
   "analyze-repo",
   async (job) => {
-    const { repo } = job.data;
+    const { repo, userId } = job.data;
     let { dbId } = job.data;
     const [owner, name] = repo.split("/");
 
     try {
       // 스케줄 작업은 dbId 없이 실행되므로 여기서 직접 생성
       if (!dbId) {
-        dbId = await analysisModel.create({ repoName: repo });
+        dbId = await analysisModel.create({ repoName: repo, userId });
       }
       logger.info(`Analysis started`, { service: "worker", repo, jobId: job.id });
 
@@ -202,6 +202,7 @@ const analyzeWorker = new Worker(
         status: "DONE",
         progress: 100,
         step: "analysis completed",
+        userId,
         result: {
           ...result,
           previous_score: previous ? previous.risk_score : null,
@@ -232,6 +233,7 @@ const analyzeWorker = new Worker(
         status: "FAILED",
         progress: 100,
         step: "analysis failed",
+        userId,
         error: error.message
       });
       publisher.del(`rate:repo:${repo}`).catch(() => {});

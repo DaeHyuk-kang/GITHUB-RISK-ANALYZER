@@ -6,16 +6,18 @@ class AnalysisService {
   /**
    * 단일 저장소 분석 요청 (DB 저장 및 큐 추가)
    */
-  async requestAnalysis(repoName) {
+  async requestAnalysis(repoName, userId = 0) {
     repoName = parseRepo(repoName);
 
-    // 1. DB에 기록 (PENDING)
-    const dbId = await analysisModel.create({ repoName });
+    const dbId = await analysisModel.create({ repoName, userId });
 
-    // 2. BullMQ에 작업 추가
     const job = await analyzeQueue.add("analyze", {
       repo: repoName,
-      dbId // DB 식별자를 전달하여 워커가 나중에 업데이트할 수 있게 함
+      dbId,
+      userId
+    }, {
+      removeOnComplete: 100,
+      removeOnFail: 100
     });
 
     return { jobId: job.id, dbId, status: "PENDING" };
@@ -54,12 +56,12 @@ class AnalysisService {
   /**
    * 대량 분석 요청
    */
-  async requestBulkAnalysis(repos) {
+  async requestBulkAnalysis(repos, userId = 0) {
     if (!Array.isArray(repos) || repos.length === 0 || repos.length > 10) {
       throw new Error("repos must be an array of 1 to 10 items");
     }
     const results = await Promise.all(
-      repos.map(repo => this.requestAnalysis(repo))
+      repos.map(repo => this.requestAnalysis(repo, userId))
     );
     return results;
   }
@@ -67,16 +69,20 @@ class AnalysisService {
   /**
    * 최근 분석 리스트 조회 (최대 10개)
    */
-  async getRecentAnalyses() {
-    return await analysisModel.getRecent();
+  async getRecentAnalyses(userId = 0) {
+    return await analysisModel.getRecent(userId);
   }
 
   /**
    * 작업 상태 및 결과 조회 (Polling용)
    */
-  async getJobStatus(jobId) {
+  async getJobStatus(jobId, userId) {
     const job = await analyzeQueue.getJob(jobId);
     if (!job) {
+      throw new Error("Job not found");
+    }
+
+    if (userId && job.data.userId && job.data.userId !== userId) {
       throw new Error("Job not found");
     }
 

@@ -4,10 +4,10 @@ class AnalysisModel {
   /**
    * 새로운 분석 기록 생성
    */
-  async create({ repoName, status = "PENDING" }) {
+  async create({ repoName, status = "PENDING", userId = 0 }) {
     const [result] = await db.execute(
-      "INSERT INTO analyses (repo_name, status) VALUES (?, ?)",
-      [repoName, status]
+      "INSERT INTO analyses (repo_name, status, user_id) VALUES (?, ?, ?)",
+      [repoName, status, userId]
     );
     return result.insertId;
   }
@@ -25,18 +25,21 @@ class AnalysisModel {
   /**
    * 최근 분석 리스트 조회 (중복 제거, 각 저장소별 최신 결과만)
    */
-  async getRecent() {
+  async getRecent(userId) {
     const [rows] = await db.execute(
       `SELECT a1.id, a1.repo_name as repo, a1.risk_score, a1.risk_level, a1.status, a1.created_at
        FROM analyses a1
        INNER JOIN (
            SELECT repo_name, MAX(created_at) as max_created_at
            FROM analyses
-           WHERE status = 'COMPLETED'
+           WHERE status = 'COMPLETED' AND user_id = ?
            GROUP BY repo_name
-       ) a2 ON a1.repo_name = a2.repo_name AND a1.created_at = a2.max_created_at
-       ORDER BY a1.created_at DESC 
-       LIMIT 10`
+       ) a2 ON a1.repo_name = a2.repo_name
+              AND a1.created_at = a2.max_created_at
+              AND a1.user_id = ?
+       ORDER BY a1.created_at DESC
+       LIMIT 10`,
+      [userId, userId]
     );
     return rows;
   }

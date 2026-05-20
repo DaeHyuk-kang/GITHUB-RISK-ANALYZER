@@ -18,6 +18,11 @@ class UserModel {
     return rows[0] || null;
   }
 
+  async updatePassword(userId, password) {
+    const hash = await bcrypt.hash(password, 10);
+    await db.execute("UPDATE users SET password_hash = ? WHERE id = ?", [hash, userId]);
+  }
+
   async findByVerificationToken(token) {
     const [rows] = await db.execute("SELECT * FROM users WHERE verification_token = ?", [token]);
     return rows[0] || null;

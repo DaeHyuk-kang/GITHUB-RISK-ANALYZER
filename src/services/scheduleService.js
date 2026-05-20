@@ -18,59 +18,50 @@ function isValidCron(pattern) {
 }
 
 class ScheduleService {
-  async addSchedule(repoName, cronPattern = DEFAULT_CRON) {
+  async addSchedule(userId, repoName, cronPattern = DEFAULT_CRON) {
     repoName = parseRepo(repoName);
 
     if (!isValidCron(cronPattern)) {
       throw new Error(`Invalid cron pattern: "${cronPattern}". Expected 5 fields (e.g. "0 9 * * 1")`);
     }
 
-    // 기존 BullMQ 반복 작업이 있으면 제거 후 재등록 (크론 변경 대응)
-    const existing = await analyzeQueue.getRepeatableJobs();
-    const old = existing.find(j => j.id === `schedule:${repoName}`);
-    if (old) await analyzeQueue.removeRepeatableByKey(old.key);
+    const schedulerId = `schedule:${userId}:${repoName}`;
 
-    await scheduleModel.upsert(repoName, cronPattern);
+    await scheduleModel.upsert(userId, repoName, cronPattern);
 
-    await analyzeQueue.add(
-      "analyze",
-      { repo: repoName },
-      {
-        repeat: { pattern: cronPattern },
-        jobId: `schedule:${repoName}`
-      }
+    await analyzeQueue.upsertJobScheduler(
+      schedulerId,
+      { pattern: cronPattern, tz: "Asia/Seoul" },
+      { name: "analyze", data: { repo: repoName, userId } }
     );
 
     return { repoName, cronPattern };
   }
 
-  async removeSchedule(repoName) {
-    const schedule = await scheduleModel.getByRepo(repoName);
+  async removeSchedule(userId, repoName) {
+    const schedule = await scheduleModel.getByRepo(userId, repoName);
     if (!schedule) throw new Error("Schedule not found");
 
-    // BullMQ에서 반복 작업 제거
-    const repeatableJobs = await analyzeQueue.getRepeatableJobs();
-    const job = repeatableJobs.find(j => j.id === `schedule:${repoName}`);
-    if (job) {
-      await analyzeQueue.removeRepeatableByKey(job.key);
-    }
+    const schedulerId = `schedule:${userId}:${repoName}`;
+    await analyzeQueue.removeJobScheduler(schedulerId);
 
-    await scheduleModel.delete(repoName);
+    await scheduleModel.delete(userId, repoName);
     return { repoName };
   }
 
-  async listSchedules() {
-    const schedules = await scheduleModel.getAll();
-    const repeatableJobs = await analyzeQueue.getRepeatableJobs();
-    const jobMap = new Map(repeatableJobs.map(j => [j.id, j]));
+  async listSchedules(userId) {
+    const schedules = await scheduleModel.getAll(userId);
+    const schedulers = await analyzeQueue.getJobSchedulers();
+    const schedulerMap = new Map(schedulers.map(s => [s.key, s]));
 
     return Promise.all(schedules.map(async s => {
-      const bullJob = jobMap.get(`schedule:${s.repo_name}`);
+      const schedulerId = `schedule:${userId}:${s.repo_name}`;
+      const scheduler = schedulerMap.get(schedulerId);
       const last = await analysisModel.getLatestByRepo(s.repo_name);
       return {
         repoName: s.repo_name,
         cronPattern: s.cron_pattern,
-        nextRun: bullJob?.next ? new Date(bullJob.next).toISOString() : null,
+        nextRun: scheduler?.next ? new Date(scheduler.next).toISOString() : null,
         createdAt: s.created_at,
         lastScore: last?.risk_score ?? null,
         lastLevel: last?.risk_level ?? null,
@@ -81,24 +72,17 @@ class ScheduleService {
 
   // 서버 재시작 시 DB 스케줄을 BullMQ에 복원
   async restoreSchedules() {
-    const schedules = await scheduleModel.getAll();
+    const schedules = await scheduleModel.getAllForRestore();
     if (schedules.length === 0) return;
 
-    const existing = await analyzeQueue.getRepeatableJobs();
-    const existingIds = new Set(existing.map(j => j.id));
-
     for (const s of schedules) {
-      if (!existingIds.has(`schedule:${s.repo_name}`)) {
-        await analyzeQueue.add(
-          "analyze",
-          { repo: s.repo_name },
-          {
-            repeat: { pattern: s.cron_pattern },
-            jobId: `schedule:${s.repo_name}`
-          }
-        );
-        logger.info(`Schedule restored`, { service: "schedule", repo: s.repo_name, cron: s.cron_pattern });
-      }
+      const schedulerId = `schedule:${s.user_id}:${s.repo_name}`;
+      await analyzeQueue.upsertJobScheduler(
+        schedulerId,
+        { pattern: s.cron_pattern, tz: "Asia/Seoul" },
+        { name: "analyze", data: { repo: s.repo_name, userId: s.user_id } }
+      );
+      logger.info(`Schedule restored`, { service: "schedule", repo: s.repo_name, cron: s.cron_pattern });
     }
   }
 }

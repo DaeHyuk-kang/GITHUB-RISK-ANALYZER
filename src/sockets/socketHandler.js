@@ -1,14 +1,19 @@
+const logger = require("../config/logger");
+
 function registerSocket(io) {
   io.on("connection", (socket) => {
-    console.log(`🔌 Client connected: ${socket.id}`);
+    logger.info("Client connected", { socketId: socket.id });
 
     socket.on("join-job", (jobId) => {
       socket.join(`job:${jobId}`);
-      console.log(`Socket ${socket.id} joined room job:${jobId}`);
+    });
+
+    socket.on("join-user", (userId) => {
+      if (userId) socket.join(`user:${userId}`);
     });
 
     socket.on("disconnect", () => {
-      console.log(`❌ Client disconnected: ${socket.id}`);
+      logger.info("Client disconnected", { socketId: socket.id });
     });
   });
 }

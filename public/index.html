@@ -398,6 +398,21 @@
 
         .schedule-form h3 { margin-bottom: 16px; }
 
+        .weekday-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+        .weekday-picker label {
+            display: flex; align-items: center; gap: 4px;
+            padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
+            border: 1px solid var(--border-color); background: var(--bg-color);
+            transition: all 0.15s;
+        }
+        .weekday-picker input[type=checkbox] { display: none; }
+        .weekday-picker label:has(input:checked) { background: var(--accent-color); color: #fff; border-color: var(--accent-color); }
+        .cron-preview {
+            margin-top: 12px; padding: 8px 14px; border-radius: 8px;
+            background: #0d1117; font-size: 0.82rem; color: #8b949e;
+        }
+        .cron-preview code { color: #58a6ff; }
+
         .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 
         .form-group { flex-grow: 1; min-width: 200px; }
@@ -867,24 +882,39 @@
                             <label>Repository</label>
                             <input type="text" id="scheduleRepo" placeholder="owner/repo or https://github.com/owner/repo" />
                         </div>
-                        <div class="form-group">
-                            <label>Frequency</label>
-                            <select id="schedulePreset">
-                                <option value="0 0 * * *">Daily at midnight</option>
-                                <option value="0 9 * * *">Daily at 9 AM</option>
-                                <option value="0 */6 * * *">Every 6 hours</option>
-                                <option value="0 0 * * 1">Weekly (Mon midnight)</option>
-                                <option value="custom">Custom cron...</option>
+                        <div class="form-group" style="min-width:120px; max-width:140px;">
+                            <label>반복</label>
+                            <select id="scheduleFreq">
+                                <option value="daily">매일</option>
+                                <option value="weekly">매주</option>
+                                <option value="monthly">매월</option>
                             </select>
                         </div>
-                        <div class="form-group" id="customCronGroup" style="display: none;">
-                            <label>Cron expression</label>
-                            <input type="text" id="customCron" placeholder="0 0 * * *" />
+                        <div class="form-group" id="monthdayGroup" style="display:none; min-width:100px; max-width:120px;">
+                            <label>날짜</label>
+                            <select id="scheduleMonthDay"></select>
+                        </div>
+                        <div class="form-group" style="min-width:130px; max-width:150px;">
+                            <label>시간</label>
+                            <input type="time" id="scheduleTime" value="09:00" />
                         </div>
                         <button id="addScheduleBtn" style="padding: 10px 20px; align-self: flex-end;">
                             <i class="fas fa-plus"></i> Add
                         </button>
                     </div>
+                    <div id="weekdayGroup" style="display:none; margin-top:12px;">
+                        <label style="font-size:0.82rem; color:var(--text-secondary); display:block; margin-bottom:8px;">요일</label>
+                        <div class="weekday-picker">
+                            <label><input type="checkbox" name="weekday" value="1"> 월</label>
+                            <label><input type="checkbox" name="weekday" value="2"> 화</label>
+                            <label><input type="checkbox" name="weekday" value="3"> 수</label>
+                            <label><input type="checkbox" name="weekday" value="4"> 목</label>
+                            <label><input type="checkbox" name="weekday" value="5"> 금</label>
+                            <label><input type="checkbox" name="weekday" value="6"> 토</label>
+                            <label><input type="checkbox" name="weekday" value="0"> 일</label>
+                        </div>
+                    </div>
+                    <div class="cron-preview">생성된 cron: <code id="cronPreview">0 9 * * *</code></div>
                 </div>
 
                 <!-- Schedule List -->
@@ -915,17 +945,25 @@
 
         function getToken() { return localStorage.getItem("gra_token"); }
         function getEmail() { return localStorage.getItem("gra_email"); }
+        function getUserId() { return localStorage.getItem("gra_user_id"); }
 
-        function setAuth(token, email) {
+        function setAuth(token, email, userId) {
             localStorage.setItem("gra_token", token);
             localStorage.setItem("gra_email", email);
+            if (userId) localStorage.setItem("gra_user_id", String(userId));
             authModal.style.display = "none";
             document.getElementById("userEmail").textContent = email;
+            if (userId) socket.emit("join-user", userId);
         }
 
         function clearAuth() {
             localStorage.removeItem("gra_token");
             localStorage.removeItem("gra_email");
+            localStorage.removeItem("gra_user_id");
+            if (verifyPollInterval) { clearInterval(verifyPollInterval); verifyPollInterval = null; }
+            registerForm.style.display = "none";
+            loginForm.style.display = "block";
+            authError.style.display = "none";
             authModal.style.display = "flex";
         }
 
@@ -979,7 +1017,7 @@
                 });
                 const data = await res.json();
                 if (!data.success) { showAuthError(data.message); return; }
-                setAuth(data.token, data.email);
+                setAuth(data.token, data.email, data.userId);
                 loadRecentAnalyses();
             } catch (e) { showAuthError("Login failed"); }
         });
@@ -1019,7 +1057,6 @@
                             btn.disabled = false;
                             btn.style.opacity = "1";
                             btn.style.cursor = "pointer";
-                            btn._verifiedData = d;
                         }
                     } catch (_) {}
                 }, 3000);
@@ -1027,11 +1064,20 @@
         });
 
         document.getElementById("registerBtn").addEventListener("click", async () => {
-            const data = document.getElementById("registerBtn")._verifiedData;
-            if (!data) return;
-            setAuth(data.token, data.email);
-            if (verifyPollInterval) clearInterval(verifyPollInterval);
-            loadRecentAnalyses();
+            const email = document.getElementById("regEmail").value.trim();
+            const password = document.getElementById("regPassword").value;
+            try {
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (!data.success) { showAuthError(data.message); return; }
+                if (verifyPollInterval) clearInterval(verifyPollInterval);
+                setAuth(data.token, data.email, data.userId);
+                loadRecentAnalyses();
+            } catch (e) { showAuthError("로그인에 실패했습니다."); }
         });
 
         document.getElementById("regPassword").addEventListener("keydown", e => {
@@ -1066,6 +1112,10 @@
 
         // ── Socket ─────────────────────────────────────────────────
         const socket = io();
+        socket.on("connect", () => {
+            const uid = getUserId();
+            if (uid) socket.emit("join-user", uid);
+        });
         let scoreChart = null, statusChart = null, historyChart = null;
         let compareChartOverlay = null;
         let pollingInterval = null;
@@ -1101,7 +1151,8 @@
 
         async function loadRecentAnalyses() {
             try {
-                const res = await fetch("/api/analyses/recent");
+                const res = await authFetch("/api/analyses/recent");
+                if (!res) return;
                 const result = await res.json();
                 if (!result.success) return;
 
@@ -1151,7 +1202,12 @@
 
             try {
                 const [owner, repo] = repoName.split("/");
-                const res = await fetch(`/api/analyses/repo/${owner}/${repo}`);
+                const res = await authFetch(`/api/analyses/repo/${owner}/${repo}`);
+                if (!res) {
+                    progressBox.classList.add("hidden");
+                    initialMessage.classList.remove("hidden");
+                    return;
+                }
                 const json = await res.json();
                 if (json.success && json.data) {
                     displayResult(flattenApiResult(json.data));
@@ -1182,11 +1238,15 @@
             progressStep.innerHTML = `<i class="fas fa-circle-notch spinner"></i> Starting analysis...`;
 
             try {
-                const res = await fetch("/api/analyze", {
+                const res = await authFetch("/api/analyze", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repo })
                 });
+                if (!res) {
+                    progressBox.classList.add("hidden");
+                    initialMessage.classList.remove("hidden");
+                    return;
+                }
                 const data = await res.json();
 
                 if (!res.ok) {
@@ -1203,7 +1263,8 @@
                 if (pollingInterval) clearInterval(pollingInterval);
                 pollingInterval = setInterval(async () => {
                     try {
-                        const sr = await fetch(`/api/jobs/${currentJobId}`);
+                        const sr = await authFetch(`/api/jobs/${currentJobId}`);
+                        if (!sr) { clearInterval(pollingInterval); pollingInterval = null; return; }
                         const sd = await sr.json();
                         if (sd.status === "COMPLETED" || sd.status === "DONE") {
                             clearInterval(pollingInterval); pollingInterval = null;
@@ -1257,7 +1318,8 @@
                 </button>`;
             document.getElementById("retryJobBtn").addEventListener("click", async () => {
                 try {
-                    await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+                    const retryRes = await authFetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+                    if (!retryRes) return;
                     progressBar.style.background = "";
                     progressBar.style.width = "0%";
                     progressPercent.textContent = "0%";
@@ -1266,7 +1328,8 @@
                     if (pollingInterval) clearInterval(pollingInterval);
                     pollingInterval = setInterval(async () => {
                         try {
-                            const sr = await fetch(`/api/jobs/${jobId}`);
+                            const sr = await authFetch(`/api/jobs/${jobId}`);
+                            if (!sr) { clearInterval(pollingInterval); pollingInterval = null; return; }
                             const sd = await sr.json();
                             if (sd.status === "COMPLETED" || sd.status === "DONE") {
                                 clearInterval(pollingInterval); pollingInterval = null;
@@ -1391,7 +1454,8 @@
             const card = document.getElementById("historyCard");
             try {
                 const [owner, repo] = repoName.split("/");
-                const res = await fetch(`/api/analyses/repo/${owner}/${repo}/history`);
+                const res = await authFetch(`/api/analyses/repo/${owner}/${repo}/history`);
+                if (!res) { card.style.display = "none"; return; }
                 const data = await res.json();
 
                 if (!data.success || data.data.length < 2) {
@@ -1553,11 +1617,11 @@
             if (!repoA || !repoB) { alert("Please enter both repositories"); return; }
 
             try {
-                const res = await fetch("/api/analyses/compare", {
+                const res = await authFetch("/api/analyses/compare", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repoA, repoB })
                 });
+                if (!res) return;
                 const data = await res.json();
                 if (!data.success) { alert(data.message); return; }
                 renderCompare(data.data);
@@ -1718,11 +1782,11 @@
                 </div>`).join("");
 
             try {
-                const res = await fetch("/api/analyze/bulk", {
+                const res = await authFetch("/api/analyze/bulk", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repos: lines })
                 });
+                if (!res) return;
                 const data = await res.json();
                 if (!data.success) { alert(data.message); return; }
 
@@ -1736,7 +1800,8 @@
 
                     const iv = setInterval(async () => {
                         try {
-                            const sr = await fetch(`/api/jobs/${job.jobId}`);
+                            const sr = await authFetch(`/api/jobs/${job.jobId}`);
+                            if (!sr) { clearInterval(iv); return; }
                             const sd = await sr.json();
                             if (sd.status === "COMPLETED" || sd.status === "DONE") {
                                 clearInterval(iv);
@@ -1776,17 +1841,53 @@
         });
 
         // ── Schedules ──────────────────────────────────────────────
-        document.getElementById("schedulePreset").addEventListener("change", function () {
-            document.getElementById("customCronGroup").style.display = this.value === "custom" ? "block" : "none";
+        // 날짜 옵션 초기화 (1~31일)
+        const monthDaySelect = document.getElementById("scheduleMonthDay");
+        for (let i = 1; i <= 31; i++) {
+            const opt = document.createElement("option");
+            opt.value = i; opt.textContent = `${i}일`;
+            monthDaySelect.appendChild(opt);
+        }
+
+        function buildCron() {
+            const freq = document.getElementById("scheduleFreq").value;
+            const [hour, minute] = document.getElementById("scheduleTime").value.split(":").map(Number);
+            if (freq === "daily") return `${minute} ${hour} * * *`;
+            if (freq === "weekly") {
+                const days = [...document.querySelectorAll('input[name="weekday"]:checked')].map(c => c.value);
+                return `${minute} ${hour} * * ${days.length ? days.join(",") : "*"}`;
+            }
+            if (freq === "monthly") {
+                const day = document.getElementById("scheduleMonthDay").value;
+                return `${minute} ${hour} ${day} * *`;
+            }
+            return `${minute} ${hour} * * *`;
+        }
+
+        function updateCronPreview() {
+            document.getElementById("cronPreview").textContent = buildCron();
+        }
+
+        document.getElementById("scheduleFreq").addEventListener("change", function () {
+            document.getElementById("weekdayGroup").style.display = this.value === "weekly" ? "block" : "none";
+            document.getElementById("monthdayGroup").style.display = this.value === "monthly" ? "block" : "none";
+            updateCronPreview();
         });
+
+        document.getElementById("scheduleTime").addEventListener("change", updateCronPreview);
+        document.getElementById("scheduleMonthDay").addEventListener("change", updateCronPreview);
+        document.querySelectorAll('input[name="weekday"]').forEach(cb => cb.addEventListener("change", updateCronPreview));
 
         document.getElementById("addScheduleBtn").addEventListener("click", async () => {
             const repo = document.getElementById("scheduleRepo").value.trim();
-            const preset = document.getElementById("schedulePreset").value;
-            const cron = preset === "custom" ? document.getElementById("customCron").value.trim() : preset;
+            const cron = buildCron();
+            const freq = document.getElementById("scheduleFreq").value;
 
             if (!repo) { alert("Please enter a repository"); return; }
-            if (!cron) { alert("Please enter a cron expression"); return; }
+            if (freq === "weekly") {
+                const days = [...document.querySelectorAll('input[name="weekday"]:checked')];
+                if (!days.length) { alert("요일을 하나 이상 선택해주세요."); return; }
+            }
 
             try {
                 const res = await authFetch("/api/schedules", {
