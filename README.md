@@ -1,66 +1,49 @@
 # GitHub Risk Analyzer
 
-GitHub 리포지토리의 활동성, 기여자 집중도, 이슈 및 Pull Request 관리 상태를 분석하여 해당 프로젝트의 '위험도'를 점수로 산출해주는 도구입니다.
+GitHub 저장소의 활동성, 기여자 집중도, 이슈 및 Pull Request 관리 상태를 분석하여 프로젝트의 위험도를 점수로 산출해주는 대시보드 서비스입니다.
 
-## 🚀 주요 기능
-
-- **활동성 분석**: 최근 커밋 날짜를 기준으로 프로젝트가 얼마나 활발하게 유지보수되고 있는지 확인합니다.
-- **기여자 분석**: 특정 기여자에게 프로젝트 기여가 과도하게 집중되어 있는지(Bus Factor) 분석합니다.
-- **이슈 관리 분석**: 전체 이슈 중 해결되지 않은 이슈의 비율을 계산합니다.
-- **Pull Request 분석**: 생성된 PR 중 실제로 머지(Merge)된 비율을 분석하여 코드 통합의 효율성을 측정합니다.
-- **종합 위험도 산출**: 위 지표들을 종합하여 'Low Risk'부터 'Very High Risk'까지의 등급을 제공합니다.
-
-## 🛠 기술 스택
-
-- **Backend**: Node.js, Express
-- **API**: GitHub REST API (Axios)
-- **Frontend**: HTML, JavaScript (Vanilla JS)
-
-## 📦 설치 및 실행 방법
-
-1. **저장소 클론**
-   ```bash
-   git clone <repository-url>
-   cd github-risk-analyzer
-   ```
-
-2. **의존성 설치**
-   ```bash
-   npm install
-   ```
-
-3. **환경 변수 설정 (선택 사항)**
-   GitHub API의 Rate Limit을 피하기 위해 개인 액세스 토큰(Personal Access Token) 사용을 권장합니다.
-   ```bash
-   export GITHUB_TOKEN=your_github_token_here
-   ```
-
-4. **서버 실행**
-   ```bash
-   npm start
-   ```
-   서버는 기본적으로 `http://localhost:3000`에서 실행됩니다.
-
-## 🖥 사용 방법
-
-### 웹 인터페이스
-브라우저에서 `http://localhost:3000`에 접속한 후, 분석하고자 하는 GitHub 리포지토리의 경로(예: `facebook/react`)를 입력합니다.
-
-### API 엔드포인트
-직접 API를 호출하여 분석 결과를 JSON 형태로 받아볼 수 있습니다.
-
-- **URL**: `/analyze`
-- **Method**: `GET`
-- **Query Parameter**: `repo=owner/repo_name`
-- **Example**: `http://localhost:3000/analyze?repo=nodejs/node`
-
-## 📊 위험도 산정 기준
-
-- **Activity (30%)**: 최근 커밋이 7일 이내면 만점, 기간이 길어질수록 감점.
-- **Contributor (20%)**: 상위 기여자의 기여 비중이 낮을수록(분산될수록) 높은 점수.
-- **Issue (30%)**: 오픈 이슈 비율이 낮을수록 높은 점수.
-- **PR (20%)**: PR 머지 비율이 높을수록 높은 점수.
+🔗 **https://githubriskanalyzer.site**
 
 ---
-이 프로젝트는 교육 및 참고용으로 제작되었습니다.
-# GITHUB-RISK-ANALYZER
+
+## 주요 기능
+
+- **저장소 분석**: owner/repo 또는 GitHub URL 입력 시 비동기로 분석 후 위험도 점수 산출
+- **실시간 진행률**: Socket.io 기반 실시간 분석 진행 상태 표시
+- **이전 결과 비교**: 동일 저장소의 이전 분석 결과와 점수 변화량 표시
+- **다중 분석 (Bulk)**: 최대 10개 저장소 동시 분석
+- **분석 히스토리**: 저장소별 시간순 점수 변화 트렌드 차트
+- **두 저장소 비교**: 두 저장소의 분석 결과 나란히 비교
+- **스케줄 분석**: cron 표현식 기반 정기 자동 분석 (KST 시간대)
+- **이메일 알림**: 점수가 설정한 임계값 이하로 떨어지면 이메일 자동 발송
+- **Webhook 연동**: GitHub Push 이벤트 발생 시 자동 분석 트리거
+- **회원 인증**: 이메일 인증 기반 회원가입, JWT 로그인
+
+---
+
+## 위험도 산정 기준
+
+| 지표 | 가중치 | 설명 |
+|------|--------|------|
+| Activity | 30% | 최근 커밋 빈도 및 마지막 활동 시점 |
+| Issue | 30% | 오픈 이슈 비율 |
+| PR | 20% | Pull Request 병합 비율 |
+| Contributor | 20% | 기여자 집중도 (Bus Factor) |
+
+| 점수 | 등급 |
+|------|------|
+| 80 이상 | Low Risk |
+| 60 ~ 79 | Medium Risk |
+| 40 ~ 59 | High Risk |
+| 40 미만 | Very High Risk |
+
+---
+
+## 기술 스택
+
+- **Backend**: Node.js, Express.js 5
+- **Queue**: BullMQ 5 + Redis
+- **Database**: MySQL 8.0
+- **Real-time**: Socket.io + Redis Pub/Sub
+- **Auth**: JWT + bcryptjs
+- **Infra**: AWS EC2, Docker Compose, nginx, Let's Encrypt
