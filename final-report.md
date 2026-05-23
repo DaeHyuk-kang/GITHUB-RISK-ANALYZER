@@ -258,3 +258,66 @@ EC2 (Amazon Linux 2023)
 ```
 
 **배포 흐름**: 로컬 빌드 → AWS ECR 푸시 (`deploy.sh`) → EC2에서 `docker compose pull && up -d`
+
+---
+
+## 11. 테스트 결과
+
+### 회원가입 / 이메일 인증 / 로그인
+- 이메일 입력 후 인증 메일 발송 확인
+- 인증 링크 클릭 시 `email_verified = 1` 처리 및 회원가입 완료 버튼 자동 활성화 확인
+- 미인증 상태에서 동일 이메일 재가입 시 인증 메일 재발송 동작 확인
+- JWT 토큰 발급 및 7일 유효기간 확인
+- 인증 API 분당 5회 초과 시 429 응답 확인
+
+### 저장소 분석
+- `DaeHyuk-kang/GITHUB-RISK-ANALYZER`, `vercel-labs/zero`, `SKHU-BOX/SKHU_BOX-Backend` 등 실제 저장소 분석 완료
+- Socket.io 실시간 진행률(10% → 25% → 45% → 65% → 85% → 95% → 100%) 표시 확인
+- 분석 완료 후 Risk Score, 위험 등급, 세부 지표 정상 출력 확인
+- 동일 저장소 재분석 시 이전 점수와 변화량(score_diff) 비교 표시 확인
+- GitHub URL 입력(`https://github.com/owner/repo`) 및 `owner/repo` 형식 모두 정상 처리 확인
+
+### 사용자별 데이터 격리
+- 서로 다른 계정으로 분석 후 Recent Analyses가 본인 데이터만 표시되는 것 확인
+- 타인의 jobId로 `GET /api/jobs/:id` 요청 시 404 반환 확인
+
+### 스케줄 분석
+- `SKHU-BOX/SKHU_BOX-Backend` 저장소에 cron 스케줄 등록 후 설정 시각에 자동 분석 실행 확인
+- 서버 재시작 후 DB에 저장된 스케줄 자동 복원(`restoreSchedules`) 확인
+- Next Run이 KST 기준으로 올바르게 표시되는 것 확인
+
+### 이메일 알림
+- `DaeHyuk-kang/GITHUB-RISK-ANALYZER` 저장소에 임계값 90 설정 후 알림 구독 등록 확인
+- 분석 점수가 임계값 이하일 때 이메일 자동 발송 동작 확인
+
+### 레이트 리밋 / 분산 락
+- 동일 저장소 동시 분석 요청 시 두 번째 요청에서 429 응답 반환 확인 (Redis SET NX EX 30)
+- 분석 완료 후 락 자동 해제 확인
+
+### 배포
+- `https://githubriskanalyzer.site` HTTPS 정상 접속 확인
+- Docker 컨테이너 4개(server, worker, db, redis) 정상 실행 확인
+- SSL 인증서 자동 갱신 타이머 등록 확인 (`certbot-renew.timer`)
+
+---
+
+## 12. GitHub Webhook 연동
+
+`DaeHyuk-kang/GITHUB-RISK-ANALYZER` 저장소에 Webhook을 등록하여 실제 동작을 검증했다.
+
+- **Webhook URL**: `https://githubriskanalyzer.site/api/webhooks/github`
+- **이벤트**: `push`
+- **서명 검증**: HMAC-SHA256 (`GITHUB_WEBHOOK_SECRET` 환경변수)
+
+**동작 흐름**:
+```
+저장소에 Push 발생
+    ↓
+GitHub → POST /api/webhooks/github (HMAC 서명 포함)
+    ↓
+서버가 서명 검증 → 통과 시 분석 큐에 자동 추가
+    ↓
+Worker가 처리 → 최신 Risk Score DB 저장
+```
+
+> 본인 소유 또는 관리자 권한이 있는 저장소에만 Webhook 등록이 가능하다. 타인 저장소(예: `facebook/react`)는 해당 소유자가 직접 등록해야 한다.
